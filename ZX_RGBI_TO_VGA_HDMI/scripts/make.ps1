@@ -10,8 +10,6 @@ Param(
 # Arduino CLI executable name and config
 $ARDUINO_CLI = "arduino-cli.exe"
 $CONFIG_DIR = "$($env:USERPROFILE)\.arduinoIDE"
-# Arduino CLI Board type
-$FQBN = "rp2040:rp2040:rpipico"
 # Default port to upload to
 $PORT = "COM6"
 # Optional verbose compile/upload trigger
@@ -30,11 +28,11 @@ foreach ($buildFlag in $ExtraBuildFlags) {
 $Params = @()
 
 if ($Action -eq "build") {
-    $Params = ("compile --config-dir $CONFIG_DIR $VERBOSE --port $PORT --fqbn $FQBN" -split "\s+") + $BuildFlags
+    $Params = ("compile --config-dir $CONFIG_DIR $VERBOSE --port $PORT" -split "\s+") + $BuildFlags
 }
 
 if ($Action -eq "upload") {
-    $Params = "upload --config-dir $CONFIG_DIR $VERBOSE --port $PORT --fqbn $FQBN" -split "\s+"
+    $Params = "upload --config-dir $CONFIG_DIR $VERBOSE --port $PORT" -split "\s+"
 }
 
 if ($Action -eq "monitor") {
