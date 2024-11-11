@@ -158,7 +158,12 @@ void __not_in_flash_func(dma_handler_capture())
       CS_idx++;
       x = -shX - 1;
 
-      if (CS_idx < V_SYNC_PULSE) // detect V_SYNC pulse
+      if (sync_mask == (1u << HS_PIN)) // composite sync
+      {
+        if (CS_idx < V_SYNC_PULSE) // detect V_SYNC pulse
+          continue;
+      }
+      else if (val8 & (1u << VS_PIN))
         continue;
 
       // start capture of a new frame
