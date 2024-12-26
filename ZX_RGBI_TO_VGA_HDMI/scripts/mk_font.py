@@ -40,9 +40,7 @@ def main(argv):
     width = int(match.group(1))
     height = int(match.group(2))
     y_base = int(match.group(4))
-    gap = 16 - height
-    tgap = gap // 2
-    bgap = gap - tgap
+
     out_f.write("const uint8_t %s[] aligned(4) = {\n" % argv[2])
     for line in in_f:
         # Look for a new character encoding
@@ -77,7 +75,6 @@ def main(argv):
                 break
         # Process bitmap data up to end-char
         char = []
-        top_space += tgap
         for i in range(top_space):
             char.append(0)
         for line in in_f:
@@ -85,7 +82,6 @@ def main(argv):
                 break
             match = re.match("([0-9A-F]+)", line)
             char.append(int(match.group(1), 16) >> x_shift)
-        bottom_space += bgap
         for i in range(bottom_space):
             char.append(0)
 
@@ -101,22 +97,12 @@ def main(argv):
             char = glyphs[code]
         else:
             char = glyphs[ord('?')];
-        # Convert row-wise data to column-wise
-        while char:
-            out_f.write("    ")
-            mask = 0x80
-            for i in range(width):
-                col = 0
-                for j in range(8):
-                    col //= 2
-                    if char[j] & mask:
-                        col = col + 0x80
-                out_f.write("0x%02x, " % (col))
-                mask //= 2
-            char = char[8:]
-            if not char:
-                out_f.write(" /* '%c' %s */" % (code if code < 0x80 else chr(uc866[code - 0x80]), hex(code)))
-            out_f.write("\n")
+
+        out_f.write("    ")
+        for i in range(height):
+            out_f.write("0x%02x, " % (char[i]))
+        out_f.write(" /* '%c' %s */" % (code if code < 0x80 else chr(uc866[code - 0x80]), hex(code)))
+        out_f.write("\n")
     out_f.write("};\n");
 if __name__ == "__main__":
     main(sys.argv)
