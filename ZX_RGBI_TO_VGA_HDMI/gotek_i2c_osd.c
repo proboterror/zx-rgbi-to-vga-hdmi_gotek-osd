@@ -1,10 +1,7 @@
 /*
   GOTEK floppy drive emulator with flashfloppy firmware I2C LCD OSD interface. 
 
-  VGA OSD output implemented.
-
-  ToDo:
-  - HDMI support
+  VGA and HDMI OSD output implemented.
 
   Based on https://github.com/keirf/flashfloppy-osd/ by Keir Fraser
   Implementation: https://github.com/proboterror

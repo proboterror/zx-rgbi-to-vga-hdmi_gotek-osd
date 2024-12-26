@@ -44,7 +44,7 @@ This version of the firmware:
   - Real-time adjustment of all parameters (changes applied immediately).
   - Settings can be saved to flash memory without restart.
 - **Test/Welcome Screen:** Styled after the ZX Spectrum 128K.
-- **GOTEK floppy drive emulator I2C OSD:** [flashfloppy](https://github.com/keirf/flashfloppy) firmware I2C 20x04 LCD on-screen display.
+- **GOTEK floppy drive emulator I2C OSD:** [flashfloppy](https://github.com/keirf/flashfloppy) firmware I2C 20x04 LCD on-screen display, VGA and HDMI output supported.
 
 ### Hardware
 
