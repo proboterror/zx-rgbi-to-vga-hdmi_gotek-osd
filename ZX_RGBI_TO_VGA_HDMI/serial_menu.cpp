@@ -1037,7 +1037,7 @@ void handle_serial_menu()
                     char pin_inversion_mask_str[9] = "";
                     int str_len = 0;
 
-                    Serial.print("  Enter pin inversion mask: ");
+                    Serial.print("  Enter pin inversion mask [0][F][KSI][SSI][I][R][G][B]: ");
 
                     while (1)
                     {
