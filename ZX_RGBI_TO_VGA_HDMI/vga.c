@@ -53,8 +53,6 @@ uint8_t palette8[] = {
     0b00111111,
 };
 
-#define FONT_HEIGHT 13
-
 static void render_i2c_osd_line(uint16_t y, const struct display *display, uint16_t *line_buf)
 {
     if(display->on)

@@ -3,6 +3,9 @@
 #include "pio_programs.h"
 #include "v_buf.h"
 
+#include "gotek_i2c_osd.h"
+#include "font.h"
+
 #include "hardware/clocks.h"
 #include "hardware/dma.h"
 #include "hardware/irq.h"
@@ -105,6 +108,38 @@ static uint tmds_encoder(uint8_t d8)
   return d_out;
 }
 
+static void render_i2c_osd_line(uint16_t y, const struct display *display, uint64_t *line_buf)
+{
+    if(display->on)
+    {
+        if(y > (display->rows * FONT_HEIGHT - 1))
+        return;
+
+        const uint8_t *t = display->text[y / FONT_HEIGHT];
+
+        for (unsigned int x = 0; x < display->cols; x++)
+        {
+            uint8_t c = *t++;
+            if ((c < 0x20) || (c > 0xf1)) // Include non-ASCII alphabet letters (and pseudographic symbols) from code page 866
+                c = 0x20;
+            c -= 0x20;
+
+            uint8_t glyph_line = font[(c * FONT_HEIGHT) + (y % FONT_HEIGHT)];
+
+            for(int8_t bit = 7; bit >= 0; bit--) 
+            {
+                static const uint8_t BRIGHT_WHITE = 15;
+
+                uint8_t index = ((glyph_line >> bit) & 0x01) * (BRIGHT_WHITE * 2);
+                uint64_t *c64 = &palette[index];
+
+                *line_buf++ = *c64++;
+                *line_buf++ = *c64;
+            }
+        }
+    }
+}
+
 static void __not_in_flash_func(dma_handler_dvi)()
 {
   static uint16_t dma_buf_idx;
@@ -149,6 +184,8 @@ static void __not_in_flash_func(dma_handler_dvi)()
       *line_buf++ = *c64++;
       *line_buf++ = *c64;
     }
+
+    render_i2c_osd_line((y / video_mode.div), &i2c_display, active_buf);
 
     // horizontal sync
     memset64(active_buf + video_mode.h_visible_area, sync_data[0b00], video_mode.h_front_porch);
