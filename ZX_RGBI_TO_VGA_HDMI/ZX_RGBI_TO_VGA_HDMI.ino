@@ -971,7 +971,7 @@ void loop()
         {
           String str_pin_inversion_mask = "";
 
-          Serial.print("  Enter pin inversion mask: ");
+          Serial.print("  Enter pin inversion mask [0][F][KSI][SSI][I][R][G][B]: ");
 
           while (1)
           {
