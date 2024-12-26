@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "pico/i2c_slave.h"
+#include "i2c_slave.h"
 #include "hardware/irq.h"
 
 typedef struct i2c_slave {

@@ -8,6 +8,7 @@ extern "C"
 #include "rgb_capture.h"
 #include "v_buf.h"
 #include "vga.h"
+#include "gotek_i2c_osd.h"
 
 #include "hardware/flash.h"
 }
@@ -428,6 +429,8 @@ void set_scanlines_mode()
 
 void setup()
 {
+  setup_i2c_slave();
+
   Serial.begin(9600);
 
   // loading saved settings
