@@ -13,6 +13,7 @@ extern "C"
 #include "settings.h"
 #include "v_buf.h"
 #include "video_output.h"
+#include "gotek_i2c_osd.h"
 
 #ifdef OSD_MENU_ENABLE
 #include "osd_menu.h"
@@ -33,6 +34,8 @@ void setup()
 {
   vreg_set_voltage(VREG_VOLTAGE_1_25);
   sleep_ms(100);
+
+  setup_i2c_slave();
 
   Serial.begin(9600);
 

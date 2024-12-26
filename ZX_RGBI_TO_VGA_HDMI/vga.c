@@ -9,6 +9,9 @@
 #include "pio_programs.h"
 #include "v_buf.h"
 
+#include "gotek_i2c_osd.h" // for i2c_display
+#include "font.h"
+
 #ifdef OSD_MENU_ENABLE
 #include "osd_menu.h"
 
@@ -39,6 +42,67 @@ static bool scanlines_mode = false;
 
 static uint32_t *v_out_dma_buf[4];
 static uint16_t palette[256];
+
+uint8_t palette8[] = {
+    0b00000000,
+    0b00100000,
+    0b00001000,
+    0b00101000,
+    0b00000010,
+    0b00100010,
+    0b00001010,
+    0b00101010,
+
+    0b00000000,
+    0b00110000,
+    0b00001100,
+    0b00111100,
+    0b00000011,
+    0b00110011,
+    0b00001111,
+    0b00111111,
+};
+
+#define FONT_HEIGHT 13
+
+static void render_i2c_osd_line(uint16_t y, const struct display *display, uint16_t *line_buf)
+{
+    if(display->on)
+    {
+        if(y > (display->rows * FONT_HEIGHT - 1))
+            return;
+
+        static const uint8_t BLACK = 0;
+        static const uint8_t BRIGHT_WHITE = 15;
+        // Fixed palette for OSD font pixel tuples: bit = 0: black, bit = 1: bright white
+        // ToDo: global init once  
+        const uint16_t font_palette[] = 
+        {
+            palette[BLACK<<4 | BLACK], // 0b00
+            palette[BRIGHT_WHITE<<4 | BLACK], // 0b01
+            palette[BLACK<<4 | BRIGHT_WHITE], // 0b10
+            palette[BRIGHT_WHITE<<4 | BRIGHT_WHITE] // 0b11
+        };
+
+        const uint8_t *t = display->text[y / FONT_HEIGHT];
+
+        for (unsigned int x = 0; x < display->cols; x++)
+        {
+            uint8_t c = *t++;
+            if ((c < 0x20) || (c > 0xf1)) // Include non-ASCII alphabet letters (and pseudographic symbols) from code page 866
+                c = 0x20;
+            c -= 0x20;
+
+            uint8_t glyph_line = font[(c * FONT_HEIGHT) + (y % FONT_HEIGHT)];
+
+            for(uint8_t bits = 0; bits < 4; bits++) // Select and shift glyph line tuples by 6,4,2,0 bits 
+            {
+                uint8_t index = ((glyph_line << (bits << 1)) & 0b11000000) >> 6;
+                *line_buf++ = font_palette[index];
+            }
+        }
+    }
+}
 
 void __not_in_flash_func(memset32)(uint32_t *dst, const uint32_t data, uint32_t size);
 
@@ -282,6 +346,8 @@ void __not_in_flash_func(dma_handler_vga)()
   // right margin
   for (int x = h_margin; x--;)
     *line_buf++ = palette[0];
+
+  render_i2c_osd_line((y - v_margin) / video_mode.div, &i2c_display, (uint16_t *)(v_out_dma_buf[active_buf_idx]));
 
   dma_channel_set_read_addr(dma_ch1, &v_out_dma_buf[active_buf_idx], false);
 }
