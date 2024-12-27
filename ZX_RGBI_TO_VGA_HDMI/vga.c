@@ -74,6 +74,14 @@ static void render_i2c_osd_line(uint16_t y, const struct display *display, uint1
 
         const uint8_t *t = display->text[y / FONT_HEIGHT];
 
+        bool line_empty = true;
+
+        for(unsigned int x = 0; x < display->cols; x++)
+            line_empty &= (t[x] <= 0x20);
+
+        if(line_empty)
+            return;
+
         for (unsigned int x = 0; x < display->cols; x++)
         {
             uint8_t c = *t++;
