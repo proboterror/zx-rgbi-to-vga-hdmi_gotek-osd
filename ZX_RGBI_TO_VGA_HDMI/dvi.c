@@ -6,6 +6,8 @@
 #include "gotek_i2c_osd.h"
 #include "font.h"
 
+#include "rgb_palette.h"
+
 #include "hardware/clocks.h"
 #include "hardware/dma.h"
 #include "hardware/irq.h"
@@ -225,6 +227,22 @@ static void __not_in_flash_func(dma_handler_dvi)()
   }
 }
 
+void set_rgb_palette()
+{
+  const rgb_palette_t* rgb_palette = get_rgb_palette();
+
+  // palette initialization
+  for (int c = 0; c < 16; c++)
+  {
+    uint8_t R = (*rgb_palette)[c][0];
+    uint8_t G = (*rgb_palette)[c][1];
+    uint8_t B = (*rgb_palette)[c][2]; 
+
+    palette[c * 2] = get_ser_diff_data(tmds_encoder(R), tmds_encoder(G), tmds_encoder(B));
+    palette[c * 2 + 1] = palette[c * 2] ^ 0x0003ffffffffffffl;
+  }
+}
+
 void start_dvi(video_mode_t v_mode)
 {
   video_mode = v_mode;
@@ -252,16 +270,7 @@ void start_dvi(video_mode_t v_mode)
   set_sys_clock_khz(video_mode.sys_freq, true);
   sleep_ms(10);
 
-  // palette initialization
-  for (int c = 0; c < 16; c++)
-  {
-    uint8_t Y = (c >> 3) & 1;
-    uint8_t R = ((c >> 2) & 1) ? (Y ? 255 : 170) : 0;
-    uint8_t G = ((c >> 1) & 1) ? (Y ? 255 : 170) : 0;
-    uint8_t B = ((c >> 0) & 1) ? (Y ? 255 : 170) : 0;
-    palette[c * 2] = get_ser_diff_data(tmds_encoder(R), tmds_encoder(G), tmds_encoder(B));
-    palette[c * 2 + 1] = palette[c * 2] ^ 0x0003ffffffffffffl;
-  }
+  set_rgb_palette();
 
   v_out_dma_buf[0] = calloc(video_mode.whole_line * 2, sizeof(uint32_t));
   v_out_dma_buf[1] = calloc(video_mode.whole_line * 2, sizeof(uint32_t));

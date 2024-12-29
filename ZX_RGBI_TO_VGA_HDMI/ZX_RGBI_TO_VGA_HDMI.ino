@@ -12,6 +12,8 @@ extern "C"
 #include "ps2_keyboard.h"
 #include "zx_keyboard.h"
 
+#include "rgb_palette.h"
+
 #include "hardware/flash.h"
 }
 
@@ -75,6 +77,7 @@ void print_main_menu()
   Serial.println("  y   set video sync mode");
   Serial.println("  t   set capture delay and image position");
   Serial.println("  m   set pin inversion mask");
+  Serial.println("  r   set hdmi/dvi rgb palette");
   Serial.println("");
   Serial.println("  p   show configuration");
   Serial.println("  h   show help (this menu)");
@@ -107,6 +110,18 @@ void print_scanlines_mode_menu()
   Serial.println("      * Scanlines mode *");
   Serial.println("");
   Serial.println("  s   change scanlines mode");
+  Serial.println("");
+  Serial.println("  p   show configuration");
+  Serial.println("  h   show help (this menu)");
+  Serial.println("  q   exit to main menu");
+  Serial.println("");
+}
+
+void print_rgb_palette_menu()
+{
+  Serial.println("      * HDMI/DVI RGB palette *");
+  Serial.println("  a   next palette");
+  Serial.println("  z   previous palette");
   Serial.println("");
   Serial.println("  p   show configuration");
   Serial.println("  h   show help (this menu)");
@@ -272,6 +287,12 @@ void print_scanlines_mode()
     Serial.println("enabled");
   else
     Serial.println("disabled");
+}
+
+void print_rgb_palette()
+{
+  Serial.print("  HDMI/DVI RGB palette ........... ");
+  Serial.printf("%d %s\n", get_rgb_palette_index(), rgb_palette_names[get_rgb_palette_index()]);
 }
 
 void print_buffering_mode()
@@ -629,6 +650,55 @@ void loop()
           settings.x3_buffering_mode = !settings.x3_buffering_mode;
           print_buffering_mode();
           set_v_buf_buffering_mode(settings.x3_buffering_mode);
+          break;
+
+        default:
+          break;
+        }
+
+        if (inbyte == 'q')
+        {
+          inbyte = 'h';
+          break;
+        }
+
+        inbyte = 0;
+      }
+
+      break;
+    }
+
+    case 'r':
+    {
+      inbyte = 'h';
+
+      while (1)
+      {
+        sleep_ms(10);
+
+        if (inbyte != 'h' && Serial.available())
+          inbyte = Serial.read();
+
+        switch (inbyte)
+        {
+        case 'p':
+          print_rgb_palette();
+          break;
+
+        case 'h':
+          print_rgb_palette_menu();
+          break;
+
+        case 'a':
+          set_rgb_palette_index(get_rgb_palette_index() + 1);
+          set_rgb_palette();
+          print_rgb_palette();
+          break;
+
+        case 'z':
+          set_rgb_palette_index(get_rgb_palette_index() - 1);
+          set_rgb_palette();
+          print_rgb_palette();
           break;
 
         default:
