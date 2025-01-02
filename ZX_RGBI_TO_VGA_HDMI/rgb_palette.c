@@ -82,7 +82,28 @@ static const rgb_palette_t rgb_palette_ega =
     { 0xFF, 0xFF, 0xFF }  // White Bright
 };
 
-const rgb_palette_t *rgb_palettes[RGB_PALETTE_SIZE] = {&rgb_palette_alone, &rgb_palette_pulsar, &rgb_palette_orthodox, &rgb_palette_ega};
+// Custom palette by AMM https://t.me/am_moskalenko
+static const rgb_palette_t rgb_palette_amm = 
+{
+    { 0x1b, 0x16, 0x16 }, // Black
+    { 0x1f, 0x1f, 0xa7 }, // Blue
+    { 0x45, 0x89, 0x1a }, // Green
+    { 0x00, 0x57, 0x83 }, // Cyan
+    { 0xa7, 0x0e, 0x1b }, // Red
+    { 0x96, 0x07, 0x5f }, // Magenta
+    { 0xea, 0x99, 0x30 }, // Yellow
+    { 0x9d, 0x9d, 0x9d }, // White
+    { 0x2e, 0x22, 0x22 }, // Black Bright
+    { 0x26, 0x26, 0xe2 }, // Blue Bright
+    { 0xa3, 0xce, 0x27 }, // Green Bright
+    { 0x31, 0xa2, 0xf1 }, // Cyan Bright
+    { 0xe9, 0x29, 0x10 }, // Red Bright
+    { 0xe0, 0x6f, 0x8b }, // Magenta Bright
+    { 0xf7, 0xe2, 0x6b }, // Yellow Bright
+    { 0xff, 0xff, 0xff }  // White Bright
+};
+
+const rgb_palette_t *rgb_palettes[RGB_PALETTE_SIZE] = {&rgb_palette_alone, &rgb_palette_pulsar, &rgb_palette_orthodox, &rgb_palette_ega, &rgb_palette_amm};
 
 static uint8_t g_rgb_palette_index = RGB_PALETTE_MIN;
 

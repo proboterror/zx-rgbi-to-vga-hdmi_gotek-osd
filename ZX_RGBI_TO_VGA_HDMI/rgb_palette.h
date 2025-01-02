@@ -9,7 +9,8 @@ enum rgb_palette_index_t
     RGB_PALETTE_PULSAR,
     RGB_PALETTE_ORTHODOX,
     RGB_PALETTE_EGA,
-    RGB_PALETTE_MAX = RGB_PALETTE_EGA,
+    RGB_PALETTE_AMM,
+    RGB_PALETTE_MAX = RGB_PALETTE_AMM,
     RGB_PALETTE_SIZE
 };
 
@@ -18,7 +19,8 @@ static const char* rgb_palette_names[RGB_PALETTE_SIZE] =
     "Alone",
     "Pulsar",
     "Orthodox",
-    "EGA"
+    "EGA",
+    "AMM"
 };
 
 typedef uint8_t rgb_palette_t[16][3];
