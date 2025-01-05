@@ -1131,5 +1131,7 @@ void setup1()
 
 void loop1()
 {
-  sleep_ms(1000);
+  osd_process();
+
+  sleep_ms(1);
 }
