@@ -8,4 +8,5 @@ struct display
 
 extern struct display i2c_display;
 
+void osd_process();
 void setup_i2c_slave();

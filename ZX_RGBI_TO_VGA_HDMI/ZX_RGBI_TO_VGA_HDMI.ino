@@ -123,4 +123,6 @@ void __not_in_flash_func(loop1())
 
     restore_interrupts_from_disabled(ints);
   }
+
+  osd_process();
 }
