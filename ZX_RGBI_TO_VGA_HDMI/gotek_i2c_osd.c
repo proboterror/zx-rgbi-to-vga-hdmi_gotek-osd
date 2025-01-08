@@ -3,7 +3,7 @@
 
   VGA and HDMI OSD output implemented.
 
-  Based on https://github.com/keirf/flashfloppy-osd/ by Keir Fraser
+  Based on https://github.com/keirf/flashfloppy-osd/ 1.9 by Keir Fraser
   Implementation: https://github.com/proboterror
 
   I2C communications to the host:
@@ -12,6 +12,8 @@
   2. Support extended custom FF OSD protocol with bidirectional comms.
 
   Simultaneous OLED/LCD screen and on-screen display can be supported with FF OSD protocol build enabled.
+  With single FF OSD 40 text columns and up to 4 rows are displayed.
+  With dual displays FF OSD have same text columns count as primary OLED/LCD.
 
   GOTEK configuration:
   https://github.com/keirf/flashfloppy/wiki/Hardware-Mods#lcd-display
@@ -26,7 +28,7 @@
   display-type = oled-128x64
   with
   osd-display-order = 3,0
-  osd-columns = 36
+  osd-columns = 40
   and 
   display-off-secs = 0-255 (60 by default)
 
@@ -47,7 +49,10 @@
 
   WaveShare RP2040-Zero board not supported.
 
-  Russian filenames are supported, requires https://github.com/proboterror/flashfloppy-russian patched flashfloppy GOTEK firmware. 
+  Russian filenames are supported, requires https://github.com/proboterror/flashfloppy-russian patched flashfloppy GOTEK firmware.
+
+  Build:
+  Set FF_OSD_SUPPORT to 0 to disable custom FF OSD protocol support.
 */
 
 #include "g_config.h"
