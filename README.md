@@ -16,7 +16,7 @@ For detailed hardware and original software information, please refer to the sou
   - Real-time settings adjustments for capture delay, image position, scanline effects, and buffering modes.
 - **PIO Clock Divider Optimization:** Enhanced precision in self-synchronizing capture mode.
 - **Test/Welcome Screen:** Styled like the ZX Spectrum 128K.
-- **GOTEK floppy drive emulator [I2C OSD](ZX_RGBI_TO_VGA_HDMI/gotek_i2c_osd.c):** [flashfloppy](https://github.com/keirf/flashfloppy) firmware I2C 20x04 LCD on-screen display, VGA and HDMI output supported.
+- **GOTEK floppy drive emulator [I2C OSD](ZX_RGBI_TO_VGA_HDMI/gotek_i2c_osd.c):** [FlashFloppy](https://github.com/keirf/flashfloppy) firmware I2C 40x4 on-screen display, VGA and HDMI output supported.
 
 ### Hardware
 
