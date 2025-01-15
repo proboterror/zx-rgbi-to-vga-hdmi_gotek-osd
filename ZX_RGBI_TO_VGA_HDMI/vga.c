@@ -53,12 +53,24 @@ uint8_t palette8[] = {
     0b00111111,
 };
 
-static void render_i2c_osd_line(uint16_t y, const struct display *display, uint16_t *line_buf)
+static uint16_t __not_in_flash_func(render_i2c_osd_line)(uint16_t y, const struct display *display, uint16_t *line_buf)
 {
+    uint16_t pixels = 0;
+
     if(display->on)
     {
         if(y > (display->rows * FONT_HEIGHT - 1))
-            return;
+            return pixels;
+
+        const uint8_t *t = display->text[y / FONT_HEIGHT];
+
+        bool line_empty = true;
+
+        for(unsigned int x = 0; x < display->cols; x++)
+            line_empty &= (t[x] <= 0x20);
+
+        if(line_empty)
+            return pixels;
 
         static const uint8_t BLACK = 0;
         static const uint8_t BRIGHT_WHITE = 15;
@@ -72,16 +84,6 @@ static void render_i2c_osd_line(uint16_t y, const struct display *display, uint1
             palette[BRIGHT_WHITE<<4 | BRIGHT_WHITE] // 0b11
         };
 
-        const uint8_t *t = display->text[y / FONT_HEIGHT];
-
-        bool line_empty = true;
-
-        for(unsigned int x = 0; x < display->cols; x++)
-            line_empty &= (t[x] <= 0x20);
-
-        if(line_empty)
-            return;
-
         for (unsigned int x = 0; x < display->cols; x++)
         {
             uint8_t c = *t++;
@@ -91,13 +93,18 @@ static void render_i2c_osd_line(uint16_t y, const struct display *display, uint1
 
             uint8_t glyph_line = font[(c * FONT_HEIGHT) + (y % FONT_HEIGHT)];
 
-            for(uint8_t bits = 0; bits < 4; bits++) // Select and shift glyph line tuples by 6,4,2,0 bits 
+            for(int8_t bits = 3; bits >= 0; bits--) // Select and shift glyph line tuples by 6,4,2,0 bits 
             {
-                uint8_t index = ((glyph_line << (bits << 1)) & 0b11000000) >> 6;
+                uint8_t index = ((glyph_line >> (bits << 1)) & 0b00000011);
                 *line_buf++ = font_palette[index];
+
             }
+
+            pixels += 8;
         }
     }
+
+    return pixels;
 }
 
 void __not_in_flash_func(memset32)(uint32_t *dst, const uint32_t data, uint32_t size);
@@ -262,10 +269,13 @@ void __not_in_flash_func(dma_handler_vga)()
   uint8_t *scr_buf = &screen_buf[(uint16_t)((y - v_margin) / video_mode.div) * V_BUF_W / 2];
   uint16_t *line_buf = (uint16_t *)(*v_out_dma_buf_addr);
 
-  for (int i = h_visible_area; i--;)
-    *line_buf++ = palette[*scr_buf++];
+  const uint16_t pixels = render_i2c_osd_line((y / video_mode.div), &i2c_display, line_buf);
+    
+  line_buf += pixels >> 1;
+  scr_buf += pixels >> 1 ;
 
-  render_i2c_osd_line((y - v_margin) / video_mode.div, &i2c_display, (uint16_t *)(*v_out_dma_buf_addr));
+  for (int i = h_visible_area - (pixels >> 1); i--;)
+    *line_buf++ = palette[*scr_buf++];
 
   dma_channel_set_read_addr(dma_ch1, v_out_dma_buf_addr, false);
 }

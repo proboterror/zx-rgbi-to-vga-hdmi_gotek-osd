@@ -149,7 +149,7 @@ const static struct config_t config =
 #if FF_OSD_SUPPORT
 #define barrier() asm volatile ("" ::: "memory")
 
-static void ff_osd_process(void)
+static void __not_in_flash_func(ff_osd_process)(void)
 {
     uint16_t d_c, d_p, t_c, t_p;
 
@@ -230,7 +230,7 @@ static void ff_osd_process(void)
 }
 #endif // FF_OSD_SUPPORT
 
-static void lcd_process_cmd(uint8_t cmd)
+static void __not_in_flash_func(lcd_process_cmd)(uint8_t cmd)
 {
     uint8_t x = 0x80;
     int c = 0;
@@ -268,7 +268,7 @@ static void lcd_process_cmd(uint8_t cmd)
     }
 }
 
-static void lcd_process_dat(uint8_t dat)
+static void __not_in_flash_func(lcd_process_dat)(uint8_t dat)
 {
     int x, y;
     if (lcd_ddraddr >= 0x68)
@@ -287,7 +287,7 @@ static void lcd_process_dat(uint8_t dat)
         i2c_display.cols = min_t(unsigned int, x+1, config.max_cols);
 }
 
-static void lcd_process(void)
+static void __not_in_flash_func(lcd_process)(void)
 {
     uint16_t d_c, d_p = d_prod;
     static uint16_t dat = 1;
@@ -317,7 +317,7 @@ static void lcd_process(void)
     d_cons = d_c;
 }
 
-void i2c_slave_handler(i2c_inst_t *i2c, i2c_slave_event_t event)
+void __not_in_flash_func(i2c_slave_handler)(i2c_inst_t *i2c, i2c_slave_event_t event)
 {
     static uint8_t rp;
 
