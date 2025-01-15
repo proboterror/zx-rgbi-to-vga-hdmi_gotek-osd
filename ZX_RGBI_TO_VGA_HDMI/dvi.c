@@ -113,12 +113,14 @@ static uint tmds_encoder(uint8_t d8)
   return d_out;
 }
 
-static void render_i2c_osd_line(uint16_t y, const struct display *display, uint64_t *line_buf)
+static uint16_t __not_in_flash_func(render_i2c_osd_line)(uint16_t y, const struct display *display, uint64_t *line_buf)
 {
+    uint16_t pixels = 0;
+
     if(display->on)
     {
         if(y > (display->rows * FONT_HEIGHT - 1))
-            return;
+            return pixels;
 
         const uint8_t *t = display->text[y / FONT_HEIGHT];
 
@@ -128,7 +130,7 @@ static void render_i2c_osd_line(uint16_t y, const struct display *display, uint6
             line_empty &= (t[x] <= 0x20);
 
         if(line_empty)
-            return;
+            return pixels;
 
         for (unsigned int x = 0; x < display->cols; x++)
         {
@@ -148,9 +150,13 @@ static void render_i2c_osd_line(uint16_t y, const struct display *display, uint6
 
                 *line_buf++ = *c64++;
                 *line_buf++ = *c64;
+
+                pixels++;
             }
         }
     }
+
+    return pixels;
 }
 
 static void __not_in_flash_func(dma_handler_dvi)()
@@ -252,7 +258,13 @@ static void __not_in_flash_func(dma_handler_dvi)()
     }
     else
 #endif
-      for (int x = 0; x < h_visible_area; x++)
+    {
+      const uint16_t pixels = render_i2c_osd_line((y / video_mode.div), &i2c_display, active_buf);
+
+      line_buf += pixels << 1;
+      scr_line += pixels >> 1 ;
+
+      for (int i = h_visible_area - (pixels >> 1); i--;)
       { // no OSD - maximum speed path
         uint8_t c2 = *scr_line++;
         uint8_t pixel1 = c2 & 0xf;
@@ -266,8 +278,7 @@ static void __not_in_flash_func(dma_handler_dvi)()
         *line_buf++ = *palette_ptr++;
         *line_buf++ = *palette_ptr;
       }
-
-    render_i2c_osd_line((y / video_mode.div), &i2c_display, active_buf);
+    }
 
     // horizontal sync
     memset64(active_buf + video_mode.h_visible_area, sync_data[0b00], video_mode.h_front_porch);
