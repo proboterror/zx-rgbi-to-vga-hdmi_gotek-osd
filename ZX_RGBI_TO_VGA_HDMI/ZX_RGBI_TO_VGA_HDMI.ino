@@ -14,6 +14,8 @@ extern "C"
 #include "v_buf.h"
 #include "video_output.h"
 #include "gotek_i2c_osd.h"
+#include "ps2_keyboard.h"
+#include "zx_keyboard.h"
 
 #ifdef OSD_MENU_ENABLE
 #include "osd_menu.h"
@@ -36,6 +38,8 @@ void setup()
   sleep_ms(100);
 
   setup_i2c_slave();
+  zx_keyboard_init();
+  ps2_keyboard_init();
 
   Serial.begin(9600);
 
@@ -125,4 +129,5 @@ void __not_in_flash_func(loop1())
   }
 
   osd_process();
+  zx_keyboard_update();
 }
