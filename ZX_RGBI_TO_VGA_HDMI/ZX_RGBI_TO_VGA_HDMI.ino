@@ -9,6 +9,8 @@ extern "C"
 #include "v_buf.h"
 #include "vga.h"
 #include "gotek_i2c_osd.h"
+#include "ps2_keyboard.h"
+#include "zx_keyboard.h"
 
 #include "hardware/flash.h"
 }
@@ -430,6 +432,8 @@ void set_scanlines_mode()
 void setup()
 {
   setup_i2c_slave();
+  zx_keyboard_init();
+  ps2_keyboard_init();
 
   Serial.begin(9600);
 
@@ -1132,6 +1136,7 @@ void setup1()
 void loop1()
 {
   osd_process();
+  zx_keyboard_update();
 
   sleep_ms(1);
 }
