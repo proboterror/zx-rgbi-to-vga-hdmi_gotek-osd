@@ -105,7 +105,7 @@ struct i2c_osd_info
     uint8_t protocol_ver;
     uint8_t fw_major, fw_minor;
     uint8_t buttons;
-} i2c_osd_info = {.protocol_ver = 0, .fw_major = '1', .fw_minor = '9'}; /* state: OSD -> Gotek */
+} __attribute__((packed)) i2c_osd_info = {.protocol_ver = 0, .fw_major = '1', .fw_minor = '9'}; /* state: OSD -> Gotek */
 
 /* Current position in FF OSD I2C Protocol character data. */
 static uint8_t ff_osd_x, ff_osd_y;
@@ -363,4 +363,9 @@ void setup_i2c_slave()
     i2c_init(i2c0, I2C_BAUDRATE);
     // configure I2C0 for slave mode
     i2c_slave_init(i2c0, I2C_SLAVE_ADDRESS, &i2c_slave_handler);
+}
+
+void set_osd_buttons(uint8_t buttons)
+{
+    i2c_osd_info.buttons = buttons;
 }

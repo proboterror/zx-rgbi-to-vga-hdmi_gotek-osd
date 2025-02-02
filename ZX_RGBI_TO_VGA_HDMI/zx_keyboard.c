@@ -1,5 +1,6 @@
 #include "ps2_keyboard.h"
 #include "CH446Q.h"
+#include "gotek_i2c_osd.h"
 
 #include <inttypes.h>
 
@@ -465,6 +466,25 @@ void zx_keyboard_init()
 	CH446Q_reset();
 }
 
+void osd_buttons_update(uint8_t make_code, bool state)
+{
+	static bool CTRL, LEFT, RIGHT, DOWN = false;
+
+	// Single-byte make code used instead of extended two byte codes, prefix 0xE0 ignored.
+	if(make_code == PS2_KEY_LCONTROL) // PS2_KEY_RCONTROL
+		CTRL = state;
+	if(make_code == PS2_KEY_NUMPAD4) // PS2_KEY_LEFT
+		LEFT = state;
+	if(make_code == PS2_KEY_NUMPAD6) // PS2_KEY_RIGHT
+		RIGHT = state;
+	if(make_code == PS2_KEY_NUMPAD2) // PS2_KEY_DOWN
+		DOWN = state;
+
+	const uint8_t buttons = CTRL * (OSD_BUTTON_SELECT * DOWN) | (OSD_BUTTON_RIGHT * RIGHT) | (OSD_BUTTON_LEFT * LEFT);
+	
+	set_osd_buttons(buttons);
+}
+
 void zx_keyboard_update()
 {
 	uint8_t len, code_0, code_1, code_2;
@@ -472,8 +492,10 @@ void zx_keyboard_update()
 	while(len = ps2_get_raw_code(&code_0, &code_1, &code_2))
 	{
 		const uint8_t make_code = (len == 1) ? code_0 : (len == 2) ? code_1 : code_2;
-		const struct scan_code_table_t *entry = (code_0 == 0xE0) ? scan_code_table_E0 : scan_code_table;
 		const uint8_t state_code = (len == 3) ? code_1 : code_0;
+		const bool state = (state_code != 0xF0);
+
+		const struct scan_code_table_t *entry = (code_0 == 0xE0) ? scan_code_table_E0 : scan_code_table;
 
 		// Linear find with O(n). Can be pre-sorted offline and processes with O(log2n),
 		// or sparsed array can be created with at least 0x7F(0x83) entries for O(1).
@@ -483,15 +505,17 @@ void zx_keyboard_update()
 			{
 				if(entry->zx_code_1 != ZX_KEY_NONE)
 				{
-					CH446Q_set(entry->zx_code_1, state_code != 0xF0);
+					CH446Q_set(entry->zx_code_1, state);
 				}
 
 				if(entry->zx_code_2 != ZX_KEY_NONE)
-					CH446Q_set(entry->zx_code_2, state_code != 0xF0); // Extended 58-key keyboard key.
+					CH446Q_set(entry->zx_code_2, state); // Extended 58-key keyboard key.
 				
 				break;
 			}
 			entry++;
 		}
+
+		osd_buttons_update(make_code, state);
 	}
 }
