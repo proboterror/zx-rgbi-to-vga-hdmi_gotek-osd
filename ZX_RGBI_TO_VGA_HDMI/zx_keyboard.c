@@ -480,7 +480,7 @@ void osd_buttons_update(uint8_t make_code, bool state)
 	if(make_code == PS2_KEY_NUMPAD2) // PS2_KEY_DOWN
 		DOWN = state;
 
-	const uint8_t buttons = CTRL * (OSD_BUTTON_SELECT * DOWN) | (OSD_BUTTON_RIGHT * RIGHT) | (OSD_BUTTON_LEFT * LEFT);
+	const uint8_t buttons = CTRL * ((OSD_BUTTON_SELECT * DOWN) | (OSD_BUTTON_RIGHT * RIGHT) | (OSD_BUTTON_LEFT * LEFT));
 	
 	set_osd_buttons(buttons);
 }
@@ -504,9 +504,7 @@ void zx_keyboard_update()
 			if(entry->ps_2_code == make_code)
 			{
 				if(entry->zx_code_1 != ZX_KEY_NONE)
-				{
 					CH446Q_set(entry->zx_code_1, state);
-				}
 
 				if(entry->zx_code_2 != ZX_KEY_NONE)
 					CH446Q_set(entry->zx_code_2, state); // Extended 58-key keyboard key.
