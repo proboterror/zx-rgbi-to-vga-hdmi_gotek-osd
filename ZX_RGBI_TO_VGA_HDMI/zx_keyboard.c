@@ -129,8 +129,9 @@ enum zx_keys
 	ZX_KEY_H   = D4 | A14,
 	ZX_KEY_B   = D4 | A15,
 
-	ZX_KEY_MGC = 0x7E,
-	ZX_KEY_RST = 0x7F,
+	ZX_KEY_MAGIC = 0x58, // Y:5 X:8
+	ZX_KEY_RESET = 0x68, // Y:6 X:8
+	ZX_KEY_PAUSE = 0x78, // Y:7 X:8
 
 	ZX_KEY_NONE= 0xFF
 };
@@ -466,7 +467,8 @@ void zx_keyboard_init()
 	CH446Q_reset();
 }
 
-void osd_buttons_update(uint8_t make_code, bool state)
+// Returns true if CTRL pressed.
+bool osd_buttons_update(uint8_t make_code, bool state)
 {
 	static bool CTRL, LEFT, RIGHT, DOWN = false;
 
@@ -481,8 +483,29 @@ void osd_buttons_update(uint8_t make_code, bool state)
 		DOWN = state;
 
 	const uint8_t buttons = CTRL * ((OSD_BUTTON_SELECT * DOWN) | (OSD_BUTTON_RIGHT * RIGHT) | (OSD_BUTTON_LEFT * LEFT));
-	
+
 	set_osd_buttons(buttons);
+
+	return CTRL;
+}
+
+void special_keys_update(uint8_t make_code, bool state)
+{
+	static bool PAUSE = false;
+
+	if(make_code == PS2_KEY_F12)
+		CH446Q_set(ZX_KEY_RESET, state); // Reset signal until key released.
+
+	if(make_code == PS2_KEY_F11)
+		CH446Q_set(ZX_KEY_MAGIC, state); // Magic/NMI signal until key released.
+
+	if(make_code == PS2_KEY_F10)
+	{
+		if(state)
+			PAUSE = !PAUSE; // Key press toggles pause state.
+
+		CH446Q_set(ZX_KEY_PAUSE, PAUSE);
+	}
 }
 
 void zx_keyboard_update()
@@ -497,6 +520,9 @@ void zx_keyboard_update()
 
 		const struct scan_code_table_t *entry = (code_0 == 0xE0) ? scan_code_table_E0 : scan_code_table;
 
+		if(osd_buttons_update(make_code, state))
+			continue; // Do not process ZX keyboard and special keys if CTRL modifier key pressed.
+
 		// Linear find with O(n). Can be pre-sorted offline and processes with O(log2n),
 		// or sparsed array can be created with at least 0x7F(0x83) entries for O(1).
 		while (entry->ps_2_code)
@@ -508,12 +534,12 @@ void zx_keyboard_update()
 
 				if(entry->zx_code_2 != ZX_KEY_NONE)
 					CH446Q_set(entry->zx_code_2, state); // Extended 58-key keyboard key.
-				
+
 				break;
 			}
 			entry++;
 		}
 
-		osd_buttons_update(make_code, state);
+		special_keys_update(make_code, state);
 	}
 }
