@@ -518,10 +518,13 @@ void zx_keyboard_update()
 		const uint8_t state_code = (len == 3) ? code_1 : code_0;
 		const bool state = (state_code != 0xF0);
 
-		const struct scan_code_table_t *entry = (code_0 == 0xE0) ? scan_code_table_E0 : scan_code_table;
+		if(osd_buttons_update(make_code, state)) // If CTRL modifier key pressed.
+		{
+			if(state) // Process ZX keyboard keys release but not press.
+				continue; // Do not process ZX keyboard and special keys if CTRL modifier key pressed.
+		}
 
-		if(osd_buttons_update(make_code, state))
-			continue; // Do not process ZX keyboard and special keys if CTRL modifier key pressed.
+		const struct scan_code_table_t *entry = (code_0 == 0xE0) ? scan_code_table_E0 : scan_code_table;
 
 		// Linear find with O(n). Can be pre-sorted offline and processes with O(log2n),
 		// or sparsed array can be created with at least 0x7F(0x83) entries for O(1).
