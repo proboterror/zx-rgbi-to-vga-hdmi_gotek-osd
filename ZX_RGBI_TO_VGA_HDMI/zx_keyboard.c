@@ -481,6 +481,12 @@ bool osd_buttons_update(uint8_t make_code, bool state)
 		RIGHT = state;
 	if(make_code == PS2_KEY_NUMPAD2) // PS2_KEY_DOWN
 		DOWN = state;
+	if(make_code == PS2_KEY_NUMPAD8) // PS2_KEY_UP
+	{
+		// Special key combination for move to parent directory.
+		LEFT = state;
+		RIGHT = state;
+	}
 
 	const uint8_t buttons = CTRL * ((OSD_BUTTON_SELECT * DOWN) | (OSD_BUTTON_RIGHT * RIGHT) | (OSD_BUTTON_LEFT * LEFT));
 
