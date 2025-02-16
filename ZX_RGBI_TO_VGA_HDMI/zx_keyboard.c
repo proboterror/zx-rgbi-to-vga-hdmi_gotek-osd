@@ -458,6 +458,8 @@ scan_code_table_E0[] =
 	{ PS2_KEY_NUMPAD6 /*PS2_KEY_RIGHT*/,      ZX_KEY_CS,   ZX_KEY_8}, // Right
 	{ PS2_KEY_SLASH /*PS2_KEY_DIVIDE*/,       ZX_KEY_SS,   ZX_KEY_V}, // /
 	{ PS2_KEY_RETURN /*PS2_KEY_NUMPADENTER*/, ZX_KEY_ENT,  ZX_KEY_NONE}, // Enter
+	{ PS2_KEY_NUMPAD9 /*PS2_KEY_PRIOR*/,      ZX_KEY_CS,   ZX_KEY_3 }, // PageUp
+	{ PS2_KEY_NUMPAD3 /*PS2_KEY_NEXT*/,       ZX_KEY_CS,   ZX_KEY_4 }, // PageDown	
 	{ 0x00, 0x00, 0x00 }
 };
 
