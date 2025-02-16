@@ -22,7 +22,21 @@ extern "C"
 #endif
 }
 
-settings_t settings;
+// Default settings values for Deltagon 1.6+
+settings_t settings = {
+  .video_out_type = DVI,
+  .video_out_mode = MODE_720x576_50Hz,
+  .scanlines_mode = false,
+  .buffering_mode = false,
+  .video_sync_mode = true,
+  .cap_sync_mode = EXT,
+  .frequency = 7000000,
+  .ext_clk_divider = 1,
+  .delay = 20,
+  .shX = 137,
+  .shY = 40,
+  .pin_inversion_mask = 0b01011111,
+};
 
 volatile bool start_core0 = false;
 

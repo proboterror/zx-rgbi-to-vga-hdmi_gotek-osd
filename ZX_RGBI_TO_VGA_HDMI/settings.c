@@ -10,6 +10,28 @@ extern volatile bool core1_inactive;
 
 extern settings_t settings;
 
+// https://en.wikipedia.org/wiki/Fletcher's_checksum
+uint16_t Fletcher16(uint8_t *data, int count)
+{
+  uint16_t sum1 = 0;
+  uint16_t sum2 = 0;
+  int index;
+
+  for (index = 0; index < count; ++index)
+  {
+    sum1 = (sum1 + data[index]) % 255;
+    sum2 = (sum2 + sum1) % 255;
+  }
+
+  return (sum2 << 8) | sum1;
+}
+
+typedef struct flash_settings_t
+{
+  settings_t settings;
+  uint16_t checksum;
+} flash_settings_t;
+
 void check_settings(settings_t *settings)
 {
   if (settings->video_out_type > VIDEO_OUT_TYPE_MAX ||
@@ -58,13 +80,23 @@ void load_settings(settings_t *settings)
 {
   const int *saved_settings = (const int *)(XIP_BASE + (PICO_FLASH_SIZE_BYTES - FLASH_SECTOR_SIZE));
 
-  memcpy(settings, saved_settings, sizeof(settings_t));
+  const flash_settings_t *flash_settings = (flash_settings_t*)saved_settings;
+  const uint16_t checksum = Fletcher16((uint8_t*)saved_settings, sizeof(settings_t));
+
+  if(checksum == flash_settings->checksum)
+    memcpy(settings, saved_settings, sizeof(settings_t));
+
   check_settings(settings);
 }
 
 void save_settings(settings_t *settings)
 {
   check_settings(settings);
+
+  flash_settings_t* flash_settings = (flash_settings_t*)malloc(FLASH_PAGE_SIZE);
+
+  flash_settings->settings = *settings;
+  flash_settings->checksum = Fletcher16((uint8_t*)settings, sizeof(settings_t));
 
   stop_core1 = true;
 
@@ -74,9 +106,11 @@ void save_settings(settings_t *settings)
   uint32_t ints = save_and_disable_interrupts();
 
   flash_range_erase((PICO_FLASH_SIZE_BYTES - FLASH_SECTOR_SIZE), FLASH_SECTOR_SIZE);
-  flash_range_program((PICO_FLASH_SIZE_BYTES - FLASH_SECTOR_SIZE), (uint8_t *)settings, FLASH_PAGE_SIZE);
+  flash_range_program((PICO_FLASH_SIZE_BYTES - FLASH_SECTOR_SIZE), (uint8_t *)flash_settings, FLASH_PAGE_SIZE);
 
   restore_interrupts_from_disabled(ints);
+
+  free(flash_settings);
 
   stop_core1 = false;
   core1_inactive = false;
