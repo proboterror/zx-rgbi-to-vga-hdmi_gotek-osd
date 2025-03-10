@@ -28,3 +28,104 @@ For detailed hardware and original software information, please refer to the sou
 ### Removed Features
 
 - Z80 CLK external clock source.
+
+# GOTEK floppy drive emulator with flashfloppy firmware I2C LCD OSD interface.*
+
+_TL;DR: Connect GOTEK SDA and SCL pins to Pico GP16/GP17 pins. SDA and SCL lines should be pulled up to 3.3V with 4.7~10K resistors. Also support PS/2 keyboard for ZX Spectrum and OSD control._
+
+VGA and HDMI OSD output implemented.<br>
+OSD can be controlled with connected PS/2 keyboard.
+
+Based on [flashfloppy-osd](https://github.com/keirf/flashfloppy-osd/) 1.9 by Keir Fraser<br>
+Implementation: [github.com/proboterror](https://github.com/proboterror)
+
+I2C communications to the host:
+1. Emulate HD44780 LCD controller via a PCF8574 I2C backpack. Supported screen size 20x4 characters.
+2. Support extended custom FF OSD protocol with bidirectional comms, up to 40x4 characters.
+
+![scheme](hardware/scheme.png)
+
+## Compile:
+- Install Arduino IDE 1.8.19 or up
+- In "File/Prefecrences" add Additional Board Manager URL: https://github.com/earlephilhower/arduino-pico/releases/download/global/package_rp2040_index.json
+- In "Tools/Board/Boards Manager" install "Raspberry Pi Pico/RP2040/RP2350 by Earle F. Philhower, III" version 4.3.1 or up
+- Open ZX_RGBI_TO_VGA_HDMI.ino
+- Select "Tools/Board/Raspberry Pi 2040/Raspberry Pi Pico"
+- Sketch/Verify/Compile
+
+Or use Visual Studio Code.
+
+## RP Pico Configuration:
+- Connect host computer to Raspberry Pi Pico USB. Do not forget to disconnect +5V line from ZX.
+- Use putty / minicom to connect to RP Pico COM port (9600 baud).<br>
+- Press 'h' for menu help.
+
+## GOTEK/FlashFloppy OSD wiring:
+I2C OSD uses 2 wires: SDA and SCL to connect RGBI2VGA adapter and GOTEK. Connect GOTEK SDA and SCL pins to Pico GP16/GP17 pins. SDA and SCL lines should be pulled up to VCC(3.3V) with 4.7~10K resistors on GOTEK or RGBI2VGA side.
+
+OSD also can be used with any device supporting LCD PCF8574 16x2/20x4 protocol.
+
+WaveShare RP2040-Zero board not supported.
+
+## GOTEK/FlashFloppy configuration:
+GOTEK configuration:<br>
+[flashfloppy/wiki/Hardware-Mods#lcd-display](https://github.com/keirf/flashfloppy/wiki/Hardware-Mods#lcd-display)<br>
+[flashfloppy/wiki/FF.CFG-Configuration-File](https://github.com/keirf/flashfloppy/wiki/FF.CFG-Configuration-File)
+
+FF.CFG:<br>
+for FF OSD protocol with dual OLED/LCD support:<br>
+set:
+```
+display-type=auto
+```
+or
+```
+display-type = oled-128x64
+```
+with
+```
+osd-display-order = 3,0
+osd-columns = 40
+```
+and
+``` 
+display-off-secs = 0-255 (60 by default)
+```
+display-order and osd-display-order can be set independently.
+
+for single PCF8574 20x4 LCD display protocol:<br>
+set:
+```
+display-type=lcd-20x04
+```
+with
+```
+display-order=3,0,2,1
+```
+and
+```
+display-off-secs = 0-255 (60 by default)
+```
+
+Russian filenames are supported, requires [flashfloppy-russian](https://github.com/proboterror/flashfloppy-russian) patched flashfloppy GOTEK firmware.
+
+## PS/2 Keyboard support:
+- Selected USB keyboards can be used with passive USB->PS/2 adapter: requires explicit support in keyboard's internal controller. Not tested.
+
+## GOTEK/FlashFloppy OSD hotkeys:
+- CTRL+RIGHT - right
+- CTRL+LEFT - left
+- CTRL+UP - directory up
+- CTRL+DOWN - select item
+
+## Special keys:
+- F10 - PAUSE (Z80 BUSRQ/) (trigger)
+- F11 - MAGIC (Z80 NMI/)
+- F12 - RESET (Z80 RST/)
+
+## Keyboard special keys wiring:
+- Input: CH446Q pin 5: common/GND
+- Output: CH446Q pin 15: MAGIC, pin 13: RESET, pin 11: PAUSE.
+
+## Test features:
+Selectable runtime HDMI palettes in separate branch (setting save not implenented).
