@@ -75,37 +75,24 @@ GOTEK configuration:<br>
 FF.CFG:<br>
 for FF OSD protocol with dual OLED/LCD support:<br>
 set:
-```
-display-type=auto
-```
+`display-type=auto`
 or
-```
-display-type = oled-128x64
-```
+`display-type = oled-128x64`
 with
-```
-osd-display-order = 3,0
-osd-columns = 40
-```
+`osd-display-order = 3,0`
+`osd-columns = 40`
 and
-``` 
-display-off-secs = 0-255 (60 by default)
-```
+`display-off-secs = 0-255 (60 by default)`
+
 display-order and osd-display-order can be set independently.
 
 for single PCF8574 20x4 LCD display protocol:<br>
 set:
-```
-display-type=lcd-20x04
-```
+`display-type=lcd-20x04`
 with
-```
-display-order=3,0,2,1
-```
+`display-order=3,0,2,1`
 and
-```
-display-off-secs = 0-255 (60 by default)
-```
+`display-off-secs = 0-255 (60 by default)`
 
 Russian filenames are supported, requires [flashfloppy-russian](https://github.com/proboterror/flashfloppy-russian) patched flashfloppy GOTEK firmware.
 
