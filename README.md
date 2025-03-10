@@ -82,7 +82,7 @@ This version of the firmware:
 - **Maintainability**: Cleaner code structure while preserving critical hardware-specific requirements for reliable video processing.
 
 
-# GOTEK floppy drive emulator with flashfloppy firmware I2C LCD OSD interface.*
+# GOTEK floppy drive emulator with flashfloppy firmware I2C LCD OSD interface.
 
 _TL;DR: Connect GOTEK SDA and SCL pins to Pico GP16/GP17 pins. SDA and SCL lines should be pulled up to 3.3V with 4.7~10K resistors. Also support PS/2 keyboard for ZX Spectrum and OSD control._
 
@@ -176,7 +176,7 @@ Russian filenames are supported, requires [flashfloppy-russian](https://github.c
 - F11 - MAGIC (Z80 NMI/)
 - F12 - RESET (Z80 RST/)
 
-## Keyboard special keys wiring:
+## Special keys wiring:
 - Input: CH446Q pin 5: common/GND
 - Output: CH446Q pin 15: MAGIC, pin 13: RESET, pin 11: PAUSE.
 
