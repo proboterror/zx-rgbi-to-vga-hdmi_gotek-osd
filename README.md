@@ -47,7 +47,7 @@ I2C communications to the host:
 
 ## Compile:
 - Install Arduino IDE 1.8.19 or up
-- In "File/Prefecrences" add Additional Board Manager URL: https://github.com/earlephilhower/arduino-pico/releases/download/global/package_rp2040_index.json
+- In "File/Preferences" add Additional Board Manager URL: https://github.com/earlephilhower/arduino-pico/releases/download/global/package_rp2040_index.json
 - In "Tools/Board/Boards Manager" install "Raspberry Pi Pico/RP2040/RP2350 by Earle F. Philhower, III" version 4.3.1 or up
 - Open ZX_RGBI_TO_VGA_HDMI.ino
 - Select "Tools/Board/Raspberry Pi 2040/Raspberry Pi Pico"
