@@ -686,7 +686,7 @@
 						)
 					)
 				)
-				(pin power_in line
+				(pin output line
 					(at -13.97 -44.45 0)
 					(length 5.08)
 					(name "Y4"
