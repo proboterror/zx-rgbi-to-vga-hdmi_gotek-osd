@@ -8275,6 +8275,17 @@
 		)
 		(uuid "82227d88-9e6b-4e25-9de8-82179c5e1edc")
 	)
+	(label "+5V"
+		(at 242.57 116.84 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left bottom)
+		)
+		(uuid "82a96164-59ae-4e00-a701-7f8efbf47876")
+	)
 	(label "GP26"
 		(at 157.48 53.34 0)
 		(fields_autoplaced yes)
