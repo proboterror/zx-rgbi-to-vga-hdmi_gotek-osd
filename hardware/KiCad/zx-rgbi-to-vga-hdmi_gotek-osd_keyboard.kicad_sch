@@ -5529,10 +5529,6 @@
 		(uuid "ebd58602-4429-47a1-a469-baa33d7b72a1")
 	)
 	(no_connect
-		(at 250.19 33.02)
-		(uuid "0585e9c6-c065-4445-8752-f333cb0d1a5e")
-	)
-	(no_connect
 		(at 250.19 22.86)
 		(uuid "0bcd1098-0895-412a-870d-427ffa10c2b9")
 	)
@@ -11090,6 +11086,73 @@
 			(project "zx-rgbi-to-vga-hdmi_gotek-osd_keyboard"
 				(path "/ea33e844-7ede-417a-b45b-9c2bb2acafa2"
 					(reference "R11")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:GND")
+		(at 250.19 33.02 270)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "81d2d577-f86a-4c0e-8ef5-5f035005d270")
+		(property "Reference" "#PWR015"
+			(at 243.84 33.02 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "GND"
+			(at 246.38 33.0199 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(property "Footprint" ""
+			(at 250.19 33.02 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 250.19 33.02 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
+			(at 250.19 33.02 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "fe7d1eb6-944e-47b8-962c-8ae7aa099af8")
+		)
+		(instances
+			(project "zx-rgbi-to-vga-hdmi_gotek-osd_keyboard"
+				(path "/ea33e844-7ede-417a-b45b-9c2bb2acafa2"
+					(reference "#PWR015")
 					(unit 1)
 				)
 			)
