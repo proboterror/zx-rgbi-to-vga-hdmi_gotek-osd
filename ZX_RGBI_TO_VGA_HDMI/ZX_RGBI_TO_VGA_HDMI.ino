@@ -52,9 +52,10 @@ void setup()
   sleep_ms(100);
 
   setup_i2c_slave();
+#ifndef WAVESHARE_RP2040_ZERO
   zx_keyboard_init();
   ps2_keyboard_init();
-
+#endif
   Serial.begin(9600);
 
   load_settings(&settings);
@@ -143,5 +144,7 @@ void __not_in_flash_func(loop1())
   }
 
   osd_process();
+#ifndef WAVESHARE_RP2040_ZERO
   zx_keyboard_update();
+#endif
 }

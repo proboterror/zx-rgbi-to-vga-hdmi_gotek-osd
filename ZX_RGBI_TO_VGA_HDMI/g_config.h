@@ -176,4 +176,6 @@ extern uint8_t g_v_buf[];
 #define SCANLINES_USE_THIN
 
 // enable OSD menu
+#ifndef WAVESHARE_RP2040_ZERO
 #define OSD_MENU_ENABLE
+#endif
