@@ -31,7 +31,7 @@ For detailed hardware and original software information, please refer to the sou
 
 # GOTEK floppy drive emulator with flashfloppy firmware I2C LCD OSD interface.
 
-_TL;DR: Connect GOTEK SDA and SCL pins to Pico GP16/GP17 pins. SDA and SCL lines should be pulled up to 3.3V with 4.7~10K resistors. Also support PS/2 keyboard for ZX Spectrum and OSD control._
+_TL;DR: Connect GOTEK SDA and SCL pins to Pico GP16/GP17 pins (GP26/27 for RP2040-Zero). SDA and SCL lines should be pulled up to 3.3V with 4.7~10K resistors. Also support PS/2 keyboard for ZX Spectrum and OSD control._
 
 VGA and HDMI OSD output implemented.<br>
 OSD can be controlled with connected PS/2 keyboard.
@@ -46,14 +46,19 @@ I2C communications to the host:
 ![scheme](hardware/scheme.png)
 
 ## Compile:
-- Install Arduino IDE 1.8.19 or up
-- In "File/Preferences" add Additional Board Manager URL: https://github.com/earlephilhower/arduino-pico/releases/download/global/package_rp2040_index.json
-- In "Tools/Board/Boards Manager" install "Raspberry Pi Pico/RP2040/RP2350 by Earle F. Philhower, III" version 4.3.1 or up
-- Open ZX_RGBI_TO_VGA_HDMI.ino
-- Select "Tools/Board/Raspberry Pi 2040/Raspberry Pi Pico"
-- Sketch/Verify/Compile
 
-Or use Visual Studio Code.
+Use Visual Studio Code.
+
+Install "Arduino Community Edition" extension.<br>
+Check and correct paths to rp2040 packages / Arduino CLI executable in .vscode/c_cpp_properties.json and scripts/make.ps1.
+
+Run "Terminal/Run Task.../Build"
+
+Do not use Arduino IDE, it uses different SDK / libraries resulting in capture sync issues.
+
+Add
+'#define WAVESHARE_RP2040_ZERO'
+in g_config.h when targeting WaveShare RP2040-Zero.
 
 ## RP Pico Configuration:
 - Connect host computer to Raspberry Pi Pico USB. Do not forget to disconnect +5V line from ZX.
@@ -65,7 +70,7 @@ I2C OSD uses 2 wires: SDA and SCL to connect RGBI2VGA adapter and GOTEK. Connect
 
 OSD also can be used with any device supporting LCD PCF8574 16x2/20x4 protocol.
 
-WaveShare RP2040-Zero board not supported.
+WaveShare RP2040-Zero board supported with keyboard interface disabled (GP26/GP27 for SDA/SCL).
 
 ## GOTEK/FlashFloppy configuration:
 GOTEK configuration:<br>
