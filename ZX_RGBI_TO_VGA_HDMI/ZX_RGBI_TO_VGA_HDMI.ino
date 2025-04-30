@@ -475,9 +475,10 @@ void set_scanlines_mode()
 void setup()
 {
   setup_i2c_slave();
+#ifndef WAVESHARE_RP2040_ZERO
   zx_keyboard_init();
   ps2_keyboard_init();
-
+#endif
   Serial.begin(9600);
 
   // loading saved settings
@@ -1184,7 +1185,8 @@ void setup1()
 void loop1()
 {
   osd_process();
+#ifndef WAVESHARE_RP2040_ZERO
   zx_keyboard_update();
-
+#endif
   sleep_ms(1);
 }

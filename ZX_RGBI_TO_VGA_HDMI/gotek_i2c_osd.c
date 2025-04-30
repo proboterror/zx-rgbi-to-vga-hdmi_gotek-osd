@@ -75,8 +75,13 @@ static const uint I2C_BAUDRATE = 100000; // 100 kHz: I2C Standard Mode, matching
 
 // Use GP16/17(I2C0), GP18/19 (I2C1), GP20/21 (I2C0), GP26/27 (I2C1) with full size Raspberry Pi Pico board.
 // Note: I2C0 passed to i2c_slave_init by default.
-static const uint I2C_SLAVE_SDA_PIN = 16; 
+#ifdef WAVESHARE_RP2040_ZERO
+static const uint I2C_SLAVE_SDA_PIN = 26;
+static const uint I2C_SLAVE_SCL_PIN = 27;
+#else
+static const uint I2C_SLAVE_SDA_PIN = 16;
 static const uint I2C_SLAVE_SCL_PIN = 17;
+#endif
 
 /* I2C data ring. */
 static uint8_t d_ring[1024];
@@ -359,10 +364,14 @@ void setup_i2c_slave()
     gpio_init(I2C_SLAVE_SCL_PIN);
     gpio_set_function(I2C_SLAVE_SCL_PIN, GPIO_FUNC_I2C);
     gpio_pull_up(I2C_SLAVE_SCL_PIN);
-
-    i2c_init(i2c0, I2C_BAUDRATE);
-    // configure I2C0 for slave mode
-    i2c_slave_init(i2c0, I2C_SLAVE_ADDRESS, &i2c_slave_handler);
+#ifdef WAVESHARE_RP2040_ZERO
+    i2c_inst_t* i2c = i2c1;
+#else
+    i2c_inst_t* i2c = i2c0;
+#endif
+    i2c_init(i2c, I2C_BAUDRATE);
+    // configure I2Cx for slave mode
+    i2c_slave_init(i2c, I2C_SLAVE_ADDRESS, &i2c_slave_handler);
 }
 
 void set_osd_buttons(uint8_t buttons)
