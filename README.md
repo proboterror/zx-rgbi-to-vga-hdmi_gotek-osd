@@ -84,6 +84,8 @@ This version of the firmware:
 
 # GOTEK floppy drive emulator with flashfloppy firmware I2C LCD OSD interface.
 
+![OSD](images/OSD.jpg)
+
 _TL;DR: Connect GOTEK SDA and SCL pins to Pico GP16/GP17 pins (GP26/27 for RP2040-Zero). SDA and SCL lines should be pulled up to 3.3V with 4.7~10K resistors. Also support PS/2 keyboard for ZX Spectrum and OSD control._
 
 VGA and HDMI OSD output implemented.<br>
