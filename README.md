@@ -32,6 +32,15 @@ For detailed hardware and original software information, please refer to the sou
 # GOTEK floppy drive emulator with flashfloppy firmware I2C LCD OSD interface.
 
 ![OSD](images/OSD.jpg)
+Ветка с реализацией поддержки SetupGUI и доработками от Дмитрий Стародубцев (@cinsler78)
+
+- Настройка параметров из GUI утилиты SetupGUI. Поддержаны специфичные настройки (SVGA разрешения, scanlines, отключение FF OSD).
+- Сделан вывод на экран OSD на прозрачном фоне и в зависимости от цвета бордера смена цвета шрифта.
+- Для Waveshare RP2040-Zero добавлена цветная светодиодная индикация (зеленый: OSD - включен, желтый: OSD - выключен).
+- Кнопка на GP28 включает/выключает вывод OSD без сохранения.
+
+VGA and HDMI output supported.
+![SetupGUI](images/SetupGUI.png)
 
 _TL;DR: Connect GOTEK SDA and SCL pins to Pico GP16/GP17 pins (GP26/27 for RP2040-Zero). SDA and SCL lines should be pulled up to 3.3V with 4.7~10K resistors. Also support PS/2 keyboard for ZX Spectrum and OSD control._
 
@@ -64,8 +73,7 @@ in g_config.h when targeting WaveShare RP2040-Zero.
 
 ## RP Pico Configuration:
 - Connect host computer to Raspberry Pi Pico USB. Do not forget to disconnect +5V line from ZX.
-- Use putty / minicom to connect to RP Pico COM port (9600 baud).<br>
-- Press 'h' for menu help.
+- Use SetupGUI utility.
 
 ## GOTEK/FlashFloppy OSD wiring:
 I2C OSD uses 2 wires: SDA and SCL to connect RGBI2VGA adapter and GOTEK. Connect GOTEK SDA and SCL pins to Pico GP16/GP17 pins. SDA and SCL lines should be pulled up to VCC(3.3V) with 4.7~10K resistors on GOTEK or RGBI2VGA side.
@@ -122,4 +130,4 @@ Russian filenames are supported, requires [flashfloppy-russian](https://github.c
 - Output: CH446Q pin 15: MAGIC, pin 13: RESET, pin 11: PAUSE.
 
 ## Test features:
-Selectable runtime HDMI palettes in separate branch (setting save not implenented).
+Selectable runtime HDMI palettes in [separate branch](https://github.com/proboterror/zx-rgbi-to-vga-hdmi_gotek-osd/tree/hdmi_rgb-palette) (setting save not implenented).
