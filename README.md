@@ -122,4 +122,6 @@ Russian filenames are supported, requires [flashfloppy-russian](https://github.c
 - Output: CH446Q pin 15: MAGIC, pin 13: RESET, pin 11: PAUSE.
 
 ## Test features:
-Selectable runtime HDMI palettes in separate branch (setting save not implenented).
+Ветка с реализацией поддержки [SetupGUI](https://github.com/proboterror/zx-rgbi-to-vga-hdmi_gotek-osd/tree/SetupGUI) и доработками от Дмитрий Стародубцев (@cinsler78).
+
+Selectable runtime HDMI palettes in [separate branch](https://github.com/proboterror/zx-rgbi-to-vga-hdmi_gotek-osd/tree/hdmi_rgb-palette) (setting save not implemented).
