@@ -190,6 +190,6 @@ extern uint32_t frame_count;
 #define DELAY_MAX 31
 #define shX_MAX 200
 #define shY_MAX 200
-#define PIN_INVERSION_MASK 0x7f
+#define PIN_INVERSION_MASK 0xff
 
 #endif

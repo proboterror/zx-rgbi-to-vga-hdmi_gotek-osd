@@ -23,6 +23,7 @@
 #define NARROW_SCANLINE
 
 static int dma_ch1;
+static uint8_t *screen_buf;
 static video_mode_t video_mode;
 
 static int16_t h_visible_area;
@@ -72,16 +73,48 @@ static uint16_t __not_in_flash_func(render_i2c_osd_line)(uint16_t y, const struc
         if(line_empty)
             return pixels;
 
-        static const uint8_t BLACK = 0;
-        static const uint8_t BRIGHT_WHITE = 15;
-        // Fixed palette for OSD font pixel tuples: bit = 0: black, bit = 1: bright white
-        // ToDo: global init once  
+        // Получаем текущий видеобуфер
+        uint8_t *current_buf = get_v_buf_out();
+        if (!current_buf) {
+            return pixels;
+        }
+
+        // Фиксированные координаты области OSD (верхний левый угол бордера)
+        const uint16_t border_sample_x = 4;  // Отступ от края для анализа бордера
+        const uint16_t border_sample_y = 4;
+        
+        // Получаем цвет бордера (берем несколько точек для надежности)
+        uint8_t border_color = current_buf[(border_sample_y * V_BUF_W + border_sample_x) / 2] & 0x0F;
+        
+        // Альтернативный вариант - берем цвет из фиксированного места в буфере,
+        // соответствующего бордеру (зависит от вашей реализации буфера)
+        // uint8_t border_color = current_buf[0] & 0x0F; // Первый пиксель буфера
+        
+        // Улучшенный алгоритм определения контрастного цвета
+        uint8_t text_color;
+        
+        // Яркие цвета (8-15) - бит 3 установлен
+        if(border_color & 0x08) {
+            // Для ярких цветов используем черный текст
+            text_color = 0;
+        } 
+        else {
+            // Для обычных цветов (0-7) анализируем яркость
+            uint8_t color_value = border_color & 0x07;
+            // Пороговое значение для определения "светлости"
+            text_color = (color_value > 3) ? 0 : 15;
+        }
+
+        // Для отладки можно вывести определенные цвета
+        // printf("Border: %d, Text: %d\n", border_color, text_color);
+
+        // Создаем палитру для рендеринга
         const uint16_t font_palette[] = 
         {
-            palette[BLACK<<4 | BLACK], // 0b00
-            palette[BRIGHT_WHITE<<4 | BLACK], // 0b01
-            palette[BLACK<<4 | BRIGHT_WHITE], // 0b10
-            palette[BRIGHT_WHITE<<4 | BRIGHT_WHITE] // 0b11
+            palette[border_color<<4 | border_color], // 0b00 - фон
+            palette[text_color<<4 | border_color],   // 0b01 - текст на фоне
+            palette[border_color<<4 | text_color],   // 0b10 - текст на фоне
+            palette[text_color<<4 | text_color]      // 0b11 - текст (не используется)
         };
 
         for (unsigned int x = 0; x < display->cols; x++)

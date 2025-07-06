@@ -127,6 +127,25 @@ static uint16_t __not_in_flash_func(render_i2c_osd_line)(uint16_t y, const struc
         if(line_empty)
             return pixels;
 
+        // Получаем цвет бордера (верхний левый угол)
+        uint8_t border_color = 0;
+        if (screen_buf) {
+            // Фиксированная позиция в бордере (4 пикселя от края)
+            border_color = screen_buf[(4 * V_BUF_W + 4) / 2] & 0x0F;
+        }
+
+        // Определяем цвет текста
+        uint8_t text_color;
+        if(border_color & 0x08) { // Яркие цвета (8-15)
+            text_color = 0; // Черный текст
+        } else { // Обычные цвета (0-7)
+            text_color = ((border_color & 0x07) > 3) ? 0 : 15;
+        }
+
+        // Подготовка цветов для TMDS кодирования
+        uint64_t bg_color = palette[border_color * 2];
+        uint64_t fg_color = palette[text_color * 2];
+
         for (unsigned int x = 0; x < display->cols; x++)
         {
             uint8_t c = *t++;
@@ -138,14 +157,15 @@ static uint16_t __not_in_flash_func(render_i2c_osd_line)(uint16_t y, const struc
 
             for(int8_t bit = 7; bit >= 0; bit--) 
             {
-                static const uint8_t BRIGHT_WHITE = 15;
-
-                uint8_t index = ((glyph_line >> bit) & 0x01) * (BRIGHT_WHITE * 2);
-                uint64_t *c64 = &palette[index];
-
-                *line_buf++ = *c64++;
-                *line_buf++ = *c64;
-
+                if ((glyph_line >> bit) & 1) {
+                    // Пиксель текста
+                    *line_buf++ = fg_color;
+                    *line_buf++ = fg_color ^ 0x0003ffffffffffffl;
+                } else {
+                    // Фоновый пиксель (полупрозрачный)
+                    *line_buf++ = bg_color;
+                    *line_buf++ = bg_color ^ 0x0003ffffffffffffl;
+                }
                 pixels++;
             }
         }
