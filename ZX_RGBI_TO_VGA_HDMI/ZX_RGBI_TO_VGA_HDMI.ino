@@ -26,6 +26,11 @@ extern "C" {
 #define LED_PIN 16
 #define LED_COUNT 1
 #define RESET_PIN 28
+
+#define BUTTON_DEBOUNCE_MS 50    // Время антидребезга
+#define BUTTON_LONG_PRESS_MS 3000 // Время длинного нажатия (3 секунды)
+#define LED_RESET_BLINK_INTERVAL 200 // Интервал мигания при сбросе
+
 // Цвета для светодиода (в формате GRB для WS2812)
 #define LED_OFF     0x000000
 #define LED_RED     0x00FF00  // Было 0xFF0000
@@ -51,7 +56,8 @@ const settings_t DEFAULT_SETTINGS = {
   .delay = 17,                     // Задержка сигнала
   .shX = 137,                      // Горизонтальное смещение
   .shY = 40,                       // Вертикальное смещение
-  .pin_inversion_mask = 0b10100000 // Маска инверсии пинов
+  .pin_inversion_mask = 0b10100000, // Маска инверсии пинов
+  .manual_output_mode = false      // По умолчанию автоопределение
 };
 
 settings_t settings = DEFAULT_SETTINGS; // Активные настройки
@@ -61,6 +67,37 @@ void safe_restart() {
     sleep_ms(100);
     // Полная перезагрузка
     rp2040.restart();
+}
+
+bool is_vga_cable_connected() {
+    // 1. Выбираем один из выходных пинов VGA 
+    const uint vga_pin = VGA_PIN_D0;
+    
+    // 2. Сохраняем текущее состояние пина
+    gpio_set_dir(vga_pin, GPIO_IN);
+    bool orig_pull = gpio_is_pulled_up(vga_pin);
+    gpio_set_pulls(vga_pin, false, true); // Включаем PULLDOWN
+    
+    // 3. Подаем тестовый импульс
+    gpio_set_dir(vga_pin, GPIO_OUT);
+    gpio_put(vga_pin, 1);
+    busy_wait_us(1); // Короткий импульс 1 мкс
+    
+    // 4. Проверяем скорость разряда
+    gpio_set_dir(vga_pin, GPIO_IN);
+    uint32_t start = time_us_32();
+    while(gpio_get(vga_pin)) {
+        if(time_us_32() - start > 10) break; // Таймаут 10 мкс
+    }
+    uint32_t discharge_time = time_us_32() - start;
+    
+    printf("Discharge time: %d μs\n", discharge_time);
+    // 5. Восстанавливаем состояние
+    gpio_set_pulls(vga_pin, orig_pull, !orig_pull);
+    
+    // 6. Анализ результатов
+    // С 75 Ом нагрузкой разряд будет быстрее
+    return (discharge_time < 5); // Эмпирическое значение, требует калибровки
 }
 
 // Инициализация PIO для WS2812
@@ -96,41 +133,77 @@ void set_led(bool state, uint32_t color = LED_GREEN) {
 }
 
 void check_button() {
-    static uint32_t last_press_time = 0;
-    static bool last_stable_state = HIGH;
-    static bool processing_press = false;
-    const uint32_t debounce_time = 50;
-    const uint32_t blackout_duration = 100;
-
-    bool current_state = digitalRead(RESET_PIN);
+    static uint32_t press_start_time = 0;
+    static bool button_pressed = false;
+    static bool long_press_handled = false;
+    static bool reset_in_progress = false;
+    static uint32_t last_blink_time = 0;
     uint32_t current_time = millis();
 
-    if (current_state != last_stable_state) {
-        last_press_time = current_time;
-        last_stable_state = current_state;
-        return;
-    }
+    bool current_state = digitalRead(RESET_PIN);
 
-    if ((current_time - last_press_time) < debounce_time) {
-        return;
-    }
-
-    if (!processing_press && current_state == LOW) {
-        processing_press = true;
-        
-        // Инвертируем 7-й бит и обновляем состояние OSD
-        settings.pin_inversion_mask ^= (1 << 7);
-        i2c_display.on = (settings.pin_inversion_mask & (1 << 7)) != 0;
-        
-        if (settings.pin_inversion_mask & (1 << 7)) {
-            set_led(true, LED_GREEN);
-        } else {
-            set_led(true, LED_YELLOW);
+    // Обработка сброса (мигание светодиодом)
+    if (reset_in_progress) {
+        if (current_time - last_blink_time >= LED_RESET_BLINK_INTERVAL) {
+            set_led(!digitalRead(LED_PIN), LED_RED); // Мигаем красным
+            last_blink_time = current_time;
         }
+        return;
     }
 
-    if (processing_press && current_state == HIGH) {
-        processing_press = false;
+    // Обработка нажатия
+    if (!button_pressed && current_state == LOW) {
+        // Начало нажатия
+        button_pressed = true;
+        press_start_time = current_time;
+        long_press_handled = false;
+        return;
+    }
+
+    if (button_pressed && current_state == HIGH) {
+        // Кнопка отпущена
+        button_pressed = false;
+        
+        // Короткое нажатие (если длинное не было обработано)
+        if (!long_press_handled && (current_time - press_start_time < BUTTON_LONG_PRESS_MS)) {
+            // Инвертируем 7-й бит и обновляем состояние OSD
+            settings.pin_inversion_mask ^= (1 << 7);
+            i2c_display.on = (settings.pin_inversion_mask & (1 << 7)) != 0;
+            
+            if (settings.pin_inversion_mask & (1 << 7)) {
+                set_led(true, LED_GREEN);
+            } else {
+                set_led(true, LED_YELLOW);
+            }
+        }
+        return;
+    }
+
+    // Обработка длинного нажатия
+    if (button_pressed && !long_press_handled && 
+        (current_time - press_start_time >= BUTTON_LONG_PRESS_MS)) {
+        
+        long_press_handled = true;
+        reset_in_progress = true;
+        last_blink_time = current_time;
+        
+        // Сброс к заводским настройкам
+        printf("default...\n");
+        settings = DEFAULT_SETTINGS;
+        save_settings(&settings);
+        
+        // Мигаем красным 3 раза
+        for (int i = 0; i < 3; i++) {
+            set_led(true, LED_RED);
+            delay(200);
+            set_led(false, LED_RED);
+            delay(200);
+        }
+        
+        // Перезагрузка
+        printf("Reboot...\n");
+        delay(100);
+        rp2040.restart();
     }
 }
 
@@ -253,13 +326,19 @@ void setup() {
                 
                     #define CAP_SET_LOAD(x,T) { \
                         if(s_key[0] == 'r' || s_key[0] == 'w') { \
-                            if(s_key[0] == 'w') (x) = static_cast<T>(s_data); \
+                            if(s_key[0] == 'w') { \
+                                (x) = static_cast<T>(s_data); \
+                                /* При ручном изменении video_out_mode включаем ручной режим */ \
+                                if(strcmp(s_key+1, "video_out_mode") == 0) { \
+                                    settings.manual_output_mode = true; \
+                                } \
+                            } \
                             check_settings(&settings); \
                             printf("%s %d\n", s_key, (x)); \
                             continue; \
                         } \
                     };
-                
+                                
                     if (strcmp(s_key+1, "video_out_mode") == 0) CAP_SET_LOAD(settings.video_out_mode, video_out_mode_t)
                     if (strcmp(s_key+1, "scanlines_mode") == 0) CAP_SET_LOAD(settings.scanlines_mode, int)
                     if (strcmp(s_key+1, "x3_buffering_mode") == 0) CAP_SET_LOAD(settings.x3_buffering_mode, int)
@@ -284,6 +363,23 @@ void setup() {
     }
     else {
     // Пропускаем конфигурацию и сразу запускаем видео
+    }
+
+    // Проверка подключения кабеля с учетом режима
+    if (is_vga_cable_connected()) {
+        if (!settings.manual_output_mode) {
+            settings.video_out_mode = VGA640x480;
+            printf("VGA cable detected (auto mode)\n");
+        } else {
+            printf("Manual output mode active, using saved settings\n");
+        }
+    } else {
+        if (!settings.manual_output_mode) {
+            settings.video_out_mode = DVI;
+            printf("HDMI/DVI cable detected (auto mode)\n");
+        } else {
+            printf("Manual output mode active, using saved settings\n");
+        }
     }
 
     // Еще небольшая задержка перед запуском видео
@@ -320,10 +416,10 @@ void loop() {
     static uint32_t last_led_update = 0;
     uint32_t current_time = millis();
 
-    if (current_time - last_button_check >= 10) {
-        last_button_check = current_time;
+    //if (current_time - last_button_check >= 10) {
+    //    last_button_check = current_time;
         check_button();
-    }
+    //}
 
     if (current_time - last_serial_check >= 50) {
         last_serial_check = current_time;
@@ -365,6 +461,7 @@ void loop() {
                 else if (strcmp(s_key, "print") == 0) {
                     printf("Current settings:\n");
                     printf("video_out_mode: %d\n", settings.video_out_mode);
+                    printf("manual_output_mode: %d\n", settings.manual_output_mode);
                     printf("scanlines_mode: %d\n", settings.scanlines_mode);
                     printf("x3_buffering_mode: %d\n", settings.x3_buffering_mode);
                     printf("video_sync_mode: %d\n", settings.video_sync_mode);

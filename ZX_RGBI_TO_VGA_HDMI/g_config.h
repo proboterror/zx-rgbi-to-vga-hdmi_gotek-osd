@@ -45,6 +45,7 @@ typedef struct settings_t
   int16_t shX;
   int16_t shY;
   uint8_t pin_inversion_mask;
+  bool manual_output_mode : 1;  // 0 = автоопределение, 1 = ручной режим
 } settings_t;
 
 typedef struct video_mode_t
