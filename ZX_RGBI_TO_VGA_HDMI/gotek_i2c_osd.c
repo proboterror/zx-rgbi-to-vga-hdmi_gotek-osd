@@ -47,8 +47,6 @@
   Connect GOTEK SDA and SCL pins to free Pico I2C pins pair: see I2C_SLAVE_SDA_PIN, I2C_SLAVE_SCL_PIN constants declaration.
   SDA and SCL lines should be pulled up to VCC(3.3V) with 4.7~10K resistors on GOTEK or RGBI2VGA side.
 
-  WaveShare RP2040-Zero board not supported.
-
   Russian filenames are supported, requires https://github.com/proboterror/flashfloppy-russian patched flashfloppy GOTEK firmware.
 
   Build:
