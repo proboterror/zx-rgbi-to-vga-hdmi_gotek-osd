@@ -5,6 +5,7 @@
 
 #include "gotek_i2c_osd.h"
 #include "font.h"
+#include "osd_menu_wrapper.h" 
 
 #include "hardware/clocks.h"
 #include "hardware/dma.h"
@@ -108,69 +109,212 @@ static uint tmds_encoder(uint8_t d8)
   return d_out;
 }
 
-static uint16_t __not_in_flash_func(render_i2c_osd_line)(uint16_t y, const struct display *display, uint64_t *line_buf)
+static uint16_t __not_in_flash_func(render_i2c_osd_line)(uint16_t y, const struct display *display, uint64_t *line_buf, uint8_t *scr_buf)
 {
     uint16_t pixels = 0;
 
-    if(display->on)
-    {
-        if(y > (display->rows * FONT_HEIGHT - 1))
-            return pixels;
+    // Оригинальный OSD Готека (верх экрана)
+    if (display->on) {
+        if ((display->rows > 0) && (y < (display->rows * FONT_HEIGHT))) {
+            const uint8_t *t = display->text[y / FONT_HEIGHT];
+            bool line_empty = true;
+            for (unsigned int x = 0; x < display->cols; x++)
+                line_empty &= (t[x] <= 0x20);
+            if (line_empty)
+                return pixels;
 
-        const uint8_t *t = display->text[y / FONT_HEIGHT];
-
-        bool line_empty = true;
-
-        for(unsigned int x = 0; x < display->cols; x++)
-            line_empty &= (t[x] <= 0x20);
-
-        if(line_empty)
-            return pixels;
-
-        // Получаем цвет бордера (верхний левый угол)
-        uint8_t border_color = 0;
-        if (screen_buf) {
-            // Фиксированная позиция в бордере (4 пикселя от края)
-            border_color = screen_buf[(4 * V_BUF_W + 4) / 2] & 0x0F;
-        }
-
-        // Определяем цвет текста
-        uint8_t text_color;
-        if(border_color & 0x08) { // Яркие цвета (8-15)
-            text_color = 0; // Черный текст
-        } else { // Обычные цвета (0-7)
-            text_color = ((border_color & 0x07) > 3) ? 0 : 15;
-        }
-
-        // Подготовка цветов для TMDS кодирования
-        uint64_t bg_color = palette[border_color * 2];
-        uint64_t fg_color = palette[text_color * 2];
-
-        for (unsigned int x = 0; x < display->cols; x++)
-        {
-            uint8_t c = *t++;
-            if ((c < 0x20) || (c > 0xf1)) // Include non-ASCII alphabet letters (and pseudographic symbols) from code page 866
-                c = 0x20;
-            c -= 0x20;
-
-            uint8_t glyph_line = font[(c * FONT_HEIGHT) + (y % FONT_HEIGHT)];
-
-            for(int8_t bit = 7; bit >= 0; bit--) 
-            {
-                if ((glyph_line >> bit) & 1) {
-                    // Пиксель текста
-                    *line_buf++ = fg_color;
-                    *line_buf++ = fg_color ^ 0x0003ffffffffffffl;
-                } else {
-                    // Фоновый пиксель (полупрозрачный)
-                    *line_buf++ = bg_color;
-                    *line_buf++ = bg_color ^ 0x0003ffffffffffffl;
-                }
-                pixels++;
+            // Оригинальный рендеринг OSD Готека с прозрачным фоном
+            uint8_t border_color = 0;
+            if (screen_buf) {
+                border_color = screen_buf[(4 * V_BUF_W + 4) / 2] & 0x0F;
             }
+            uint8_t text_color;
+            if (border_color & 0x08) {
+                text_color = 0;
+            } else {
+                text_color = ((border_color & 0x07) > 3) ? 0 : 15;
+            }
+            uint64_t bg_color = palette[border_color * 2];
+            uint64_t fg_color = palette[text_color * 2];
+
+            for (unsigned int x = 0; x < display->cols; x++) {
+                uint8_t c = *t++;
+                if ((c < 0x20) || (c > 0xf1)) c = 0x20;
+                c -= 0x20;
+                uint8_t glyph_line = font[(c * FONT_HEIGHT) + (y % FONT_HEIGHT)];
+                for (int8_t bit = 7; bit >= 0; bit--) {
+                    if ((glyph_line >> bit) & 1) {
+                        *line_buf++ = fg_color;
+                        *line_buf++ = fg_color ^ 0x0003ffffffffffffl;
+                    } else {
+                        *line_buf++ = bg_color;
+                        *line_buf++ = bg_color ^ 0x0003ffffffffffffl;
+                    }
+                    pixels++;
+                }
+            }
+            // Не выходим: даём возможности далее отрисовать меню (если попадаем в его вертикальный диапазон)
         }
     }
 
+    // Рендеринг OSD меню (центр экрана)
+    bool menu_active_now = osd_menu_is_active();
+    if(menu_active_now)
+    {
+        const uint8_t rows_count = osd_menu_rows_count();
+        if (rows_count > 0)
+        {
+            // Фиксированная ширина меню в символах
+            const uint8_t max_cols = 25;
+            const uint16_t menu_width = (uint16_t)max_cols * 8; // символов * 8 пикселей
+            const uint16_t menu_height = rows_count * FONT_HEIGHT;
+            const uint16_t pad_x = 0;
+            const uint16_t pad_y = 0;
+
+            // Координаты меню
+            const uint16_t bg_width = menu_width + (pad_x << 1);
+            const uint16_t bg_height = menu_height + (pad_y << 1);
+            const uint16_t hv_pixels = (uint16_t)(video_mode.h_visible_area / 2);
+            uint16_t bg_start_x = (hv_pixels > bg_width) ? (uint16_t)((hv_pixels - bg_width) / 2) : 0;
+            bg_start_x &= (uint16_t)~1;
+            const uint16_t v_visible_scaled = (uint16_t)(video_mode.v_visible_area / video_mode.div);
+            const uint16_t menu_start_y = (v_visible_scaled > bg_height) ? (uint16_t)((v_visible_scaled - bg_height) / 2) : 0;
+
+            if(y >= menu_start_y && y < (uint16_t)(menu_start_y + bg_height))
+            {
+                const uint16_t y_in_bg = y - menu_start_y;
+                const bool in_text_band = (y_in_bg >= pad_y) && (y_in_bg < (uint16_t)(pad_y + menu_height));
+                const uint16_t content_line = in_text_band ? (uint16_t)(y_in_bg - pad_y) : 0;
+                const uint16_t menu_row = in_text_band ? (content_line / FONT_HEIGHT) : 0;
+
+                // Цвета меню: серый (тускло-белый) фон (7), чёрный текст (0)
+                const uint64_t menu_bg_color = palette[7 * 2];  // фон
+                const uint64_t menu_fg_color = palette[0 * 2];  // текст
+
+                // Левый участок до фона: копируем исходное видео из scr_buf
+                const uint16_t left_pairs = bg_start_x >> 1;
+                for (uint16_t w = 0; w < left_pairs; w++) {
+                    uint8_t c2 = *scr_buf++;
+                    uint64_t *c64 = &palette[(c2 & 0x0f) * 2];
+                    *line_buf++ = *c64++;
+                    *line_buf++ = *c64;
+                    c2 >>= 4;
+                    c64 = &palette[(c2 & 0x0f) * 2];
+                    *line_buf++ = *c64++;
+                    *line_buf++ = *c64;
+                    pixels += 2;
+                }
+
+                const uint16_t bg_end_x = (uint16_t)(bg_start_x + bg_width);
+
+                // Предвычисляем инверсию для записи пар TMDS-слов
+                const uint64_t menu_bg_color2 = menu_bg_color ^ 0x0003ffffffffffffl;
+                const uint64_t menu_fg_color2 = menu_fg_color ^ 0x0003ffffffffffffl;
+
+                // Получаем строку меню один раз на линию
+                const uint8_t *t_row = in_text_band ? osd_menu_get_row_ptr((uint8_t)menu_row) : NULL;
+                const uint8_t glyph_line_mod = (uint8_t)(content_line % FONT_HEIGHT);
+
+                // Рисуем внутреннюю область: либо сплошной фон, либо символы по 8 пикселей
+                if (!in_text_band || !t_row) {
+                    // Только фон
+                    for (uint16_t x = 0; x < bg_width; x++) {
+                        *line_buf++ = menu_bg_color;
+                        *line_buf++ = menu_bg_color2;
+                    }
+                    pixels += bg_width;
+                } else {
+                    // Текст: 25 символов по 8 пикселей
+                    for (uint16_t ch_idx = 0; ch_idx < max_cols; ch_idx++) {
+                        uint8_t c = t_row[ch_idx];
+                        if ((c < 0x20) || (c > 0xf1)) c = 0x20;
+                        c -= 0x20;
+                        const uint8_t glyph_line = font[(c * FONT_HEIGHT) + glyph_line_mod];
+                        for (int8_t bit = 7; bit >= 0; bit--) {
+                            const uint8_t mono = (glyph_line >> bit) & 1;
+                            const uint64_t px = mono ? menu_fg_color : menu_bg_color;
+                            *line_buf++ = px;
+                            *line_buf++ = px ^ 0x0003ffffffffffffl;
+                        }
+                    }
+                    pixels += menu_width;
+                }
+                return pixels;
+            }
+        }
+    }
+    
+    return pixels;
+}
+
+static uint16_t __not_in_flash_func(render_gotek_osd_bottom_line_dvi)(uint16_t y, uint64_t *line_buf)
+{
+    uint16_t pixels = 0;
+    
+    // Проверяем, активен ли OSD Gotek и включен ли 7-й бит
+    if (!is_gotek_osd_active()) {
+        return pixels;
+    }
+    
+    // Получаем строку для отображения
+    const char* osd_line = get_gotek_osd_line(0);
+    if (!osd_line) {
+        return pixels;
+    }
+    
+    // Проверяем, что строка не пустая
+    bool line_empty = true;
+    for (unsigned int x = 0; x < 40; x++) {
+        line_empty &= (osd_line[x] <= 0x20);
+    }
+    if (line_empty) {
+        return pixels;
+    }
+    
+    // Определяем позицию для отображения
+    const uint16_t v_visible_scaled = video_mode.v_visible_area / video_mode.div;
+    const uint16_t osd_start_y = v_visible_scaled - FONT_HEIGHT;
+    
+    if (y < osd_start_y || y >= (osd_start_y + FONT_HEIGHT)) {
+        return pixels;
+    }
+    
+    // Получаем цвета
+    uint8_t border_color = 0;
+    if (screen_buf) {
+        border_color = screen_buf[(4 * V_BUF_W + 4) / 2] & 0x0F;
+    }
+    
+    uint8_t text_color;
+    if (border_color & 0x08) {
+        text_color = 0;
+    } else {
+        text_color = ((border_color & 0x07) > 3) ? 0 : 15;
+    }
+    
+    uint64_t bg_color = palette[border_color * 2];
+    uint64_t fg_color = palette[text_color * 2];
+    
+    // Рендерим строку OSD
+    for (unsigned int x = 0; x < 40; x++) {
+        uint8_t c = osd_line[x];
+        if ((c < 0x20) || (c > 0xf1)) c = 0x20;
+        c -= 0x20;
+        
+        uint8_t glyph_line = font[(c * FONT_HEIGHT) + (y - osd_start_y)];
+        
+        for (int8_t bit = 7; bit >= 0; bit--) {
+            if ((glyph_line >> bit) & 1) {
+                *line_buf++ = fg_color;
+                *line_buf++ = fg_color ^ 0x0003ffffffffffffl;
+            } else {
+                *line_buf++ = bg_color;
+                *line_buf++ = bg_color ^ 0x0003ffffffffffffl;
+            }
+            pixels++;
+        }
+    }
+    
     return pixels;
 }
 
@@ -188,40 +332,50 @@ static void __not_in_flash_func(dma_handler_dvi)()
   if (y == video_mode.whole_frame)
   {
     y = 0;
-    screen_buf = get_v_buf_out();
+    screen_buf = (uint8_t*)get_v_buf_last_ready();
   }
 
   if (y & 1)
-    return;
+    return; // каждая чётная строка обновляет DMA буфер
 
   dma_buf_idx++;
 
   uint64_t *active_buf = (uint64_t *)(v_out_dma_buf[dma_buf_idx & 1]);
-
-  if (screen_buf == NULL)
-    return;
+  bool have_video = (screen_buf != NULL);
 
   if (y < video_mode.v_visible_area)
   {
     // image area
-    uint8_t *scr_buf = &screen_buf[(uint16_t)(y / video_mode.div) * V_BUF_W / 2];
+    static uint8_t zero_line[V_BUF_W / 2] = {0};
+    uint8_t *scr_buf = have_video ? &screen_buf[(uint16_t)(y / video_mode.div) * V_BUF_W / 2] : zero_line;
     uint64_t *line_buf = active_buf;
 
-    const uint16_t pixels = render_i2c_osd_line((y / video_mode.div), &i2c_display, active_buf);
-    
-    line_buf += pixels << 1;
-    scr_buf += pixels >> 1 ;
+    // Рендерим OSD Готека (верх экрана) и меню (центр)
+    uint16_t pixels = render_i2c_osd_line((y / video_mode.div), &i2c_display, active_buf, scr_buf);
+    line_buf += (pixels << 1);
+    scr_buf += (pixels >> 1);
 
-    for (int i = h_visible_area - (pixels >> 1); i--;)
-    {
-      uint8_t c2 = *scr_buf++;
-      uint64_t *c64 = &palette[(c2 & 0xf) * 2];
-      *line_buf++ = *c64++;
-      *line_buf++ = *c64;
-      c2 >>= 4;
-      c64 = &palette[(c2 & 0xf) * 2];
-      *line_buf++ = *c64++;
-      *line_buf++ = *c64;
+    if (have_video) {
+      for (int i = h_visible_area - (pixels >> 1); i--;)
+      {
+        uint8_t c2 = *scr_buf++;
+        uint64_t *c64 = &palette[(c2 & 0xf) * 2];
+        *line_buf++ = *c64++;
+        *line_buf++ = *c64;
+        c2 >>= 4;
+        c64 = &palette[(c2 & 0xf) * 2];
+        *line_buf++ = *c64++;
+        *line_buf++ = *c64;
+      }
+    } else {
+      // заполнение остатка строки чёрным, если захвата нет
+      for (int i = h_visible_area - (pixels >> 1); i--;)
+      {
+        *line_buf++ = palette[0];
+        *line_buf++ = palette[1];
+        *line_buf++ = palette[0];
+        *line_buf++ = palette[1];
+      }
     }
 
     // horizontal sync
@@ -248,6 +402,8 @@ static void __not_in_flash_func(dma_handler_dvi)()
 void start_dvi(video_mode_t v_mode)
 {
   video_mode = v_mode;
+  // Индикация: HDMI старт — синий
+  set_led(true, LED_BLUE);
 
   h_visible_area = video_mode.h_visible_area / (2 * video_mode.div);
 
@@ -283,8 +439,11 @@ void start_dvi(video_mode_t v_mode)
     palette[c * 2 + 1] = palette[c * 2] ^ 0x0003ffffffffffffl;
   }
 
-  v_out_dma_buf[0] = calloc(video_mode.whole_line * 2, sizeof(uint32_t));
-  v_out_dma_buf[1] = calloc(video_mode.whole_line * 2, sizeof(uint32_t));
+  // Установим начальный буфер вывода
+  screen_buf = (uint8_t*)get_v_buf_out();
+
+  if (!v_out_dma_buf[0]) v_out_dma_buf[0] = calloc(video_mode.whole_line * 2, sizeof(uint32_t));
+  if (!v_out_dma_buf[1]) v_out_dma_buf[1] = calloc(video_mode.whole_line * 2, sizeof(uint32_t));
 
   // set DVI data pins
   for (int i = DVI_PIN_D0; i < DVI_PIN_D0 + 6; i++)
@@ -323,10 +482,15 @@ void start_dvi(video_mode_t v_mode)
   sm_config_set_sideset(&c, 2, false, false);
 
   pio_sm_init(PIO_DVI, SM_DVI, offset, &c);
-  pio_sm_set_enabled(PIO_DVI, SM_DVI, true);
+  // Жёсткий сброс SM и FIFO перед стартом DMA
+  pio_sm_set_enabled(PIO_DVI, SM_DVI, false);
+  pio_sm_clear_fifos(PIO_DVI, SM_DVI);
+  pio_sm_restart(PIO_DVI, SM_DVI);
+  while (!pio_sm_is_tx_fifo_empty(PIO_DVI, SM_DVI)) {}
 
   // DMA initialization
-  int dma_ch0 = dma_claim_unused_channel(true);
+  static int dma_ch0 = -1;
+  if (dma_ch0 == -1) dma_ch0 = dma_claim_unused_channel(true);
   dma_ch1 = dma_claim_unused_channel(true);
 
   // main (data) DMA channel
@@ -342,7 +506,7 @@ void start_dvi(video_mode_t v_mode)
       dma_ch0,
       &c0,
       &PIO_DVI->txf[SM_DVI],     // write address
-      &v_out_dma_buf[0][0],      // read address
+      &v_out_dma_buf[0][0],      // read address (двойной буфер)
       video_mode.whole_line * 2, //
       false                      // don't start yet
   );
@@ -371,7 +535,27 @@ void start_dvi(video_mode_t v_mode)
 
   // configure the processor to run dma_handler() when DMA IRQ 0 is asserted
   irq_set_exclusive_handler(DMA_IRQ_0, dma_handler_dvi);
+  // Умеренный приоритет, чтобы не блокировать захват можно попробовать 0x00 если тормозит
+  irq_set_priority(DMA_IRQ_0, 0x40);
   irq_set_enabled(DMA_IRQ_0, true);
 
+  // Предзаполняем обе строки «чёрной» картинкой и корректными HSYNC сегментами,
+  for (int buf_idx = 0; buf_idx < 2; ++buf_idx) {
+    uint64_t *active_buf = (uint64_t *)(v_out_dma_buf[buf_idx]);
+    uint64_t *line_buf = active_buf;
+    for (int i = h_visible_area; i--; ) {
+      *line_buf++ = palette[0];
+      *line_buf++ = palette[1];
+      *line_buf++ = palette[0];
+      *line_buf++ = palette[1];
+    }
+    memset64(active_buf + video_mode.h_visible_area, sync_data[0b00], video_mode.h_front_porch);
+    memset64(active_buf + video_mode.h_visible_area + video_mode.h_front_porch, sync_data[0b01], video_mode.h_sync_pulse);
+    memset64(active_buf + video_mode.h_visible_area + video_mode.h_front_porch + video_mode.h_sync_pulse, sync_data[0b00], video_mode.h_back_porch);
+  }
+
   dma_start_channel_mask((1u << dma_ch0));
+
+  // После старта DMA включаем PIO SM
+  pio_sm_set_enabled(PIO_DVI, SM_DVI, true);
 }

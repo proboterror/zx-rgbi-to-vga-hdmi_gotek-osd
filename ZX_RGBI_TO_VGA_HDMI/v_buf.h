@@ -3,6 +3,7 @@
 
 void *get_v_buf_out();
 void *get_v_buf_in();
+void *get_v_buf_last_ready();
 void set_v_buf_buffering_mode(bool);
 
 void draw_welcome_screen(video_mode_t video_mode);

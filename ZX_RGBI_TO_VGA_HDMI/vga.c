@@ -5,6 +5,7 @@
 
 #include "gotek_i2c_osd.h" // for i2c_display
 #include "font.h"
+#include "osd_menu_wrapper.h" 
 
 #include "hardware/clocks.h"
 #include "hardware/dma.h"
@@ -54,89 +55,223 @@ uint8_t palette8[] = {
     0b00111111,
 };
 
-static uint16_t __not_in_flash_func(render_i2c_osd_line)(uint16_t y, const struct display *display, uint16_t *line_buf)
+static uint16_t __not_in_flash_func(render_i2c_osd_line)(uint16_t y, const struct display *display, uint16_t *line_buf, uint8_t *scr_buf)
 {
     uint16_t pixels = 0;
 
-    if(display->on)
-    {
-        if(y > (display->rows * FONT_HEIGHT - 1))
-            return pixels;
+    // Кэш геометрии меню для минимизации перерасчётов
+    static bool menu_geom_valid = false;
+    static uint8_t cached_rows = 0;
+    static uint16_t cached_bg_start_x = 0;
+    static uint16_t cached_bg_start_y = 0;
+    static uint16_t cached_bg_width = 0;
+    static uint16_t cached_bg_height = 0;
+    static int16_t cached_h_visible_area = -1;
+    static int16_t cached_v_margin = -1;
+    static uint16_t cached_v_visible_area = 0;
+    static uint8_t cached_div = 0;
 
-        const uint8_t *t = display->text[y / FONT_HEIGHT];
+    // Оригинальный OSD Готека (верх экрана)
+    if (display->on) {
+        if ((display->rows > 0) && (y < (display->rows * FONT_HEIGHT))) {
+            const uint8_t *t = display->text[y / FONT_HEIGHT];
+            bool line_empty = true;
+            for (unsigned int x = 0; x < display->cols; x++)
+                line_empty &= (t[x] <= 0x20);
+            if (line_empty)
+                return pixels;
 
-        bool line_empty = true;
+            // Оригинальный рендеринг OSD Готека
+            uint8_t *current_buf = get_v_buf_out();
+            if (!current_buf) return pixels;
 
-        for(unsigned int x = 0; x < display->cols; x++)
-            line_empty &= (t[x] <= 0x20);
-
-        if(line_empty)
-            return pixels;
-
-        // Получаем текущий видеобуфер
-        uint8_t *current_buf = get_v_buf_out();
-        if (!current_buf) {
-            return pixels;
-        }
-
-        // Фиксированные координаты области OSD (верхний левый угол бордера)
-        const uint16_t border_sample_x = 4;  // Отступ от края для анализа бордера
-        const uint16_t border_sample_y = 4;
-        
-        // Получаем цвет бордера (берем несколько точек для надежности)
-        uint8_t border_color = current_buf[(border_sample_y * V_BUF_W + border_sample_x) / 2] & 0x0F;
-        
-        // Альтернативный вариант - берем цвет из фиксированного места в буфере,
-        // соответствующего бордеру (зависит от вашей реализации буфера)
-        // uint8_t border_color = current_buf[0] & 0x0F; // Первый пиксель буфера
-        
-        // Улучшенный алгоритм определения контрастного цвета
-        uint8_t text_color;
-        
-        // Яркие цвета (8-15) - бит 3 установлен
-        if(border_color & 0x08) {
-            // Для ярких цветов используем черный текст
-            text_color = 0;
-        } 
-        else {
-            // Для обычных цветов (0-7) анализируем яркость
-            uint8_t color_value = border_color & 0x07;
-            // Пороговое значение для определения "светлости"
-            text_color = (color_value > 3) ? 0 : 15;
-        }
-
-        // Для отладки можно вывести определенные цвета
-        // printf("Border: %d, Text: %d\n", border_color, text_color);
-
-        // Создаем палитру для рендеринга
-        const uint16_t font_palette[] = 
-        {
-            palette[border_color<<4 | border_color], // 0b00 - фон
-            palette[text_color<<4 | border_color],   // 0b01 - текст на фоне
-            palette[border_color<<4 | text_color],   // 0b10 - текст на фоне
-            palette[text_color<<4 | text_color]      // 0b11 - текст (не используется)
-        };
-
-        for (unsigned int x = 0; x < display->cols; x++)
-        {
-            uint8_t c = *t++;
-            if ((c < 0x20) || (c > 0xf1)) // Include non-ASCII alphabet letters (and pseudographic symbols) from code page 866
-                c = 0x20;
-            c -= 0x20;
-
-            uint8_t glyph_line = font[(c * FONT_HEIGHT) + (y % FONT_HEIGHT)];
-
-            for(int8_t bits = 3; bits >= 0; bits--) // Select and shift glyph line tuples by 6,4,2,0 bits 
-            {
-                uint8_t index = ((glyph_line >> (bits << 1)) & 0b00000011);
-                *line_buf++ = font_palette[index];
-
+            uint8_t border_color = current_buf[(4 * V_BUF_W + 4) / 2] & 0x0F;
+            uint8_t text_color;
+            if (border_color & 0x08) {
+                text_color = 0;
+            } else {
+                text_color = ((border_color & 0x07) > 3) ? 0 : 15;
             }
 
-            pixels += 8;
+            const uint16_t font_palette[] = {
+                palette[border_color<<4 | border_color],
+                palette[text_color<<4 | border_color],
+                palette[border_color<<4 | text_color],
+                palette[text_color<<4 | text_color]
+            };
+
+            for (unsigned int x = 0; x < display->cols; x++) {
+                uint8_t c = *t++;
+                if ((c < 0x20) || (c > 0xf1)) c = 0x20;
+                c -= 0x20;
+                uint8_t glyph_line = font[(c * FONT_HEIGHT) + (y % FONT_HEIGHT)];
+                for (int8_t bits = 3; bits >= 0; bits--) {
+                    uint8_t index = ((glyph_line >> (bits << 1)) & 0b00000011);
+                    *line_buf++ = font_palette[index];
+                }
+                pixels += 8;
+            }
+            // Не выходим: даём возможности далее отрисовать меню (если попадаем в его вертикальный диапазон)
         }
     }
 
+    // Рендеринг OSD меню
+    if(osd_menu_is_active())
+    {
+        const uint8_t rows_count = osd_menu_rows_count();
+        if (rows_count > 0) {
+            // Обновляем кэш при изменениях
+            if (!menu_geom_valid ||
+                cached_rows != rows_count ||
+                cached_h_visible_area != h_visible_area ||
+                cached_v_margin != v_margin ||
+                cached_v_visible_area != video_mode.v_visible_area ||
+                cached_div != video_mode.div) {
+                cached_rows = rows_count;
+                cached_h_visible_area = h_visible_area;
+                cached_v_margin = v_margin;
+                cached_v_visible_area = video_mode.v_visible_area;
+                cached_div = video_mode.div;
+
+                const uint16_t menu_width = (uint16_t)25 * 8; // 25 символов
+                const uint16_t menu_height = rows_count * FONT_HEIGHT;
+                const uint16_t active_width = (uint16_t)(h_visible_area << 1);
+                cached_bg_width = menu_width;
+                cached_bg_height = menu_height;
+                cached_bg_start_x = (active_width > cached_bg_width) ? (active_width - cached_bg_width) / 2 : 0;
+                cached_bg_start_x &= (uint16_t)~1; // выравнивание на пару пикселей
+                const uint16_t v_visible_scaled = video_mode.v_visible_area / video_mode.div;
+                const uint16_t v_margin_scaled = (uint16_t)(v_margin / video_mode.div);
+                cached_bg_start_y = v_margin_scaled + ((v_visible_scaled > cached_bg_height) ? (v_visible_scaled - cached_bg_height) / 2 : 0);
+                menu_geom_valid = true;
+            }
+
+            if(y >= cached_bg_start_y && y < (uint16_t)(cached_bg_start_y + cached_bg_height))
+            {
+                const uint16_t y_in_bg = y - cached_bg_start_y;
+                const bool in_text_band = (y_in_bg < cached_bg_height);
+                const uint16_t content_line = y_in_bg;
+                const uint16_t menu_row = in_text_band ? (content_line / FONT_HEIGHT) : 0;
+
+                // Цвета меню: серый фон (7), чёрный текст (0)
+                const uint16_t p00 = palette[(7<<4) | 7];   // bg,bg
+                const uint16_t p10 = palette[(0<<4) | 7];   // fg,bg (чёрный текст)
+                const uint16_t p01 = palette[(7<<4) | 0];   // bg,fg
+                const uint16_t p11 = palette[(0<<4) | 0];   // fg,fg
+
+                // Левый участок до фона: копируем исходное видео
+                for (uint16_t w = 0; w < (cached_bg_start_x >> 1); w++) {
+                    *line_buf++ = palette[*scr_buf++];
+                }
+                pixels += cached_bg_start_x;
+
+                // Пары пикселей фона
+                const uint16_t bg_pairs = cached_bg_width >> 1;
+
+                const uint8_t *t = in_text_band ? osd_menu_get_row_ptr((uint8_t)menu_row) : NULL;
+                const uint16_t glyph_line_idx = in_text_band ? (content_line % FONT_HEIGHT) : 0;
+
+                // Рисуем фон + текст
+                for (uint16_t pair = 0; pair < bg_pairs; pair++) {
+                    // Координата пары внутри фона (2 пикселя)
+                    const uint16_t x_in_bg = pair << 1;
+                    uint16_t px = p00;
+                    // Текст внутри области контента
+                    if (t && in_text_band && (x_in_bg < cached_bg_width)) {
+                        const uint16_t rel_x = x_in_bg;
+                        const uint16_t ch_idx = rel_x >> 3; // /8
+                        if (ch_idx < 25) {
+                            uint8_t c = t[ch_idx];
+                            if ((c < 0x20) || (c > 0xf1)) c = 0x20;
+                            c -= 0x20;
+                            const uint8_t glyph_line = font[(c * FONT_HEIGHT) + glyph_line_idx];
+                            const int8_t bits = 3 - (rel_x & 0x7) / 2; // пара 0..3 слева направо
+                            const uint8_t index = (glyph_line >> (bits << 1)) & 0x03;
+                            px = (index == 0) ? p00 : (index == 1) ? p10 : (index == 2) ? p01 : p11;
+                        }
+                    }
+
+                    *line_buf++ = px;
+                    pixels += 2;
+                }
+
+
+                return pixels;
+            }
+        }
+    }
+    
+    return pixels;
+}
+
+static uint16_t __not_in_flash_func(render_gotek_osd_bottom_line)(uint16_t y, uint16_t *line_buf, uint8_t *scr_buf)
+{
+    uint16_t pixels = 0;
+    
+    // Проверяем, активен ли OSD Gotek и включен ли 7-й бит
+    if (!is_gotek_osd_active()) {
+        return pixels;
+    }
+    
+    // Получаем строку для отображения
+    const char* osd_line = get_gotek_osd_line(0);
+    if (!osd_line) {
+        return pixels;
+    }
+    
+    // Проверяем, что строка не пустая
+    bool line_empty = true;
+    for (unsigned int x = 0; x < 40; x++) {
+        line_empty &= (osd_line[x] <= 0x20);
+    }
+    if (line_empty) {
+        return pixels;
+    }
+    
+    // Определяем позицию для отображения
+    const uint16_t v_visible_scaled = video_mode.v_visible_area / video_mode.div;
+    const uint16_t v_margin_scaled = (uint16_t)(v_margin / video_mode.div);
+    const uint16_t osd_start_y = v_margin_scaled + v_visible_scaled - FONT_HEIGHT;
+    
+    if (y < osd_start_y || y >= (osd_start_y + FONT_HEIGHT)) {
+        return pixels;
+    }
+    
+    // Получаем текущий буфер для определения цветов
+    uint8_t *current_buf = get_v_buf_out();
+    if (!current_buf) return pixels;
+    
+    uint8_t border_color = current_buf[(4 * V_BUF_W + 4) / 2] & 0x0F;
+    uint8_t text_color;
+    if (border_color & 0x08) {
+        text_color = 0;
+    } else {
+        text_color = ((border_color & 0x07) > 3) ? 0 : 15;
+    }
+    
+    const uint16_t font_palette[] = {
+        palette[border_color<<4 | border_color],
+        palette[text_color<<4 | border_color],
+        palette[border_color<<4 | text_color],
+        palette[text_color<<4 | text_color]
+    };
+    
+    // Рендерим строку OSD
+    for (unsigned int x = 0; x < 40; x++) {
+        uint8_t c = osd_line[x];
+        if ((c < 0x20) || (c > 0xf1)) c = 0x20;
+        c -= 0x20;
+        
+        uint8_t glyph_line = font[(c * FONT_HEIGHT) + (y - osd_start_y)];
+        
+        for (int8_t bits = 3; bits >= 0; bits--) {
+            uint8_t index = ((glyph_line >> (bits << 1)) & 0b00000011);
+            *line_buf++ = font_palette[index];
+        }
+        
+        pixels += 8;
+    }
+    
     return pixels;
 }
 
@@ -177,7 +312,9 @@ void __not_in_flash_func(dma_handler_vga)()
     return;
   }
 
-  if (!(screen_buf))
+  // Если нет видеобуфера, но активно меню — всё равно рендерим OSD поверх «чёрного» фона
+  bool have_video = (screen_buf != NULL);
+  if (!have_video && !osd_menu_is_active())
   {
     dma_channel_set_read_addr(dma_ch1, &line_patterns[2], false);
     return;
@@ -299,16 +436,27 @@ void __not_in_flash_func(dma_handler_vga)()
     break;
   }
 
-  uint8_t *scr_buf = &screen_buf[(uint16_t)((y - v_margin) / video_mode.div) * V_BUF_W / 2];
+  static uint8_t zero_line[V_BUF_W / 2] = {0};
+  uint8_t *scr_buf = have_video ? &screen_buf[(uint16_t)((y - v_margin) / video_mode.div) * V_BUF_W / 2] : zero_line;
   uint16_t *line_buf = (uint16_t *)(*v_out_dma_buf_addr);
 
-  const uint16_t pixels = render_i2c_osd_line((y / video_mode.div), &i2c_display, line_buf);
-    
-  line_buf += pixels >> 1;
-  scr_buf += pixels >> 1 ;
+  // Сначала рендерим OSD Готека (верх экрана), затем меню (центр)
+  // OSD Готека всегда остаётся на месте, даже при активном меню
+  uint16_t pixels = render_i2c_osd_line((y / video_mode.div), &i2c_display, line_buf, scr_buf);
+  uint16_t drawn_pairs = pixels >> 1;
+  line_buf += drawn_pairs;
+  scr_buf += drawn_pairs;
 
-  for (int i = h_visible_area - (pixels >> 1); i--;)
-    *line_buf++ = palette[*scr_buf++];
+  if (have_video) {
+    for (int i = h_visible_area - drawn_pairs; i--;) {
+      *line_buf++ = palette[*scr_buf++];
+    }
+  } else {
+    // Заполняем оставшуюся часть строки чёрным
+    for (int i = h_visible_area - drawn_pairs; i--;) {
+      *line_buf++ = palette[0];
+    }
+  }
 
   dma_channel_set_read_addr(dma_ch1, v_out_dma_buf_addr, false);
 }
@@ -321,6 +469,8 @@ void set_vga_scanlines_mode(bool sl_mode)
 void start_vga(video_mode_t v_mode)
 {
   video_mode = v_mode;
+  // Индикация: VGA старт — зелёный
+  set_led(true, LED_GREEN);
 
   int whole_line = video_mode.whole_line / video_mode.div;
   int h_sync_pulse_front = (video_mode.h_visible_area + video_mode.h_front_porch) / video_mode.div;
@@ -344,7 +494,7 @@ void start_vga(video_mode_t v_mode)
       palette[(i * 16) + j] = ((uint16_t)(palette8[i] | (NO_SYNC ^ video_mode.sync_polarity)) << 8) | (palette8[j] | (NO_SYNC ^ video_mode.sync_polarity));
 
   // allocate memory for line template definitions
-  uint8_t *base_ptr = calloc(whole_line * 4, sizeof(uint8_t));
+  uint8_t *base_ptr = (uint8_t*)calloc(whole_line * 4, 1);
   line_patterns[0] = (uint32_t *)base_ptr;
 
   // empty line

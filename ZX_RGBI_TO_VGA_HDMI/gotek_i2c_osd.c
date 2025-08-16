@@ -55,6 +55,7 @@
   Set FF_OSD_SUPPORT to 0 to disable custom FF OSD protocol support.
 */
 
+#include "osd_menu_wrapper.h" // Добавляем include
 #include "g_config.h"
 #include "gotek_i2c_osd.h"
 #include "i2c_slave.h" // ToDo: import pico_i2c_slave library from pico-sdk with CMake (pico-sdk/src/rp2_common/pico_i2c_slave) 
@@ -76,8 +77,8 @@ static const uint I2C_BAUDRATE = 100000; // 100 kHz: I2C Standard Mode, matching
 // Use GP16/17(I2C0), GP18/19 (I2C1), GP20/21 (I2C0), GP26/27 (I2C1) with full size Raspberry Pi Pico board.
 // Note: I2C0 passed to i2c_slave_init by default.
 #ifdef WAVESHARE_RP2040_ZERO
-static const uint I2C_SLAVE_SDA_PIN = 26;
-static const uint I2C_SLAVE_SCL_PIN = 27;
+static const uint I2C_SLAVE_SDA_PIN = 18;
+static const uint I2C_SLAVE_SCL_PIN = 19;
 #else
 static const uint I2C_SLAVE_SDA_PIN = 16;
 static const uint I2C_SLAVE_SCL_PIN = 17;
@@ -196,7 +197,16 @@ static void __not_in_flash_func(ff_osd_process)(void)
             /* Command. */
             if ((x & 0xc0) == OSD_COLUMNS) {
                 /* 0-40 */
-                i2c_display.cols = min_t(uint16_t, 40, x & 0x3f);
+                uint16_t new_cols = min_t(uint16_t, 40, x & 0x3f);
+                if (new_cols < i2c_display.cols) {
+                    /* Clear truncated area to avoid lingering characters */
+                    for (uint8_t r = 0; r < 4; r++) {
+                        for (uint8_t c = new_cols; c < 40; c++) {
+                            i2c_display.text[r][c] = ' ';
+                        }
+                    }
+                }
+                i2c_display.cols = new_cols;
             } else {
                 switch (x & 0xf0) {
                 case OSD_BUTTONS:
@@ -204,8 +214,21 @@ static void __not_in_flash_func(ff_osd_process)(void)
                     uint8_t i2c_buttons_rx = x & 0x0f;
                     break;
                 case OSD_ROWS:
-                    /* Limit max rows count to 4 */
-                    i2c_display.rows = x > 4 ? 4 : x;
+                    /* [3:0] holds rows count; clamp to [1..4] and clear hidden rows on shrink */
+                    {
+                        uint8_t new_rows = x & 0x0f;
+                        if (new_rows == 0) new_rows = 1;
+                        if (new_rows > 4) new_rows = 4;
+                        if (new_rows < i2c_display.rows) {
+                            /* Clear hidden rows to avoid stale lines when rows decrease */
+                            for (uint8_t r = new_rows; r < 4; r++) {
+                                for (uint8_t c = 0; c < 40; c++) {
+                                    i2c_display.text[r][c] = ' ';
+                                }
+                            }
+                        }
+                        i2c_display.rows = new_rows;
+                    }
                     break;
                 case OSD_HEIGHTS:
                     /* FF OSD custom text lines heights. */
@@ -348,6 +371,8 @@ void __not_in_flash_func(i2c_slave_handler)(i2c_inst_t *i2c, i2c_slave_event_t e
 
 void osd_process()
 {
+    // Всегда обрабатываем данные от Gotek, независимо от состояния меню
+    // Логика отключения по 7-му биту остается в основном цикле
 #if FF_OSD_SUPPORT
     ff_osd_process();
 #else
@@ -377,4 +402,27 @@ void setup_i2c_slave()
 void set_osd_buttons(uint8_t buttons)
 {
     i2c_osd_info.buttons = buttons;
+}
+
+// Функции для работы с OSD строкой Gotek
+static bool gotek_osd_visible = true;
+
+const char* get_gotek_osd_line(uint8_t line_index)
+{
+    if (line_index >= 4 || !gotek_osd_visible || !i2c_display.on) {
+        return NULL;
+    }
+    
+    // Возвращаем указатель на строку из i2c_display
+    return (const char*)i2c_display.text[line_index];
+}
+
+bool is_gotek_osd_active(void)
+{
+    return gotek_osd_visible && i2c_display.on;
+}
+
+void set_gotek_osd_visibility(bool visible)
+{
+    gotek_osd_visible = visible;
 }

@@ -6,13 +6,16 @@
 #include "hardware/clocks.h"
 #include "hardware/dma.h"
 #include "hardware/irq.h"
+#include "hardware/sync.h"
 #include "hardware/structs/pll.h"
 #include "hardware/structs/systick.h"
 
-static int dma_ch1;
+static int dma_ch0 = -1;
+static int dma_ch1 = -1;
 uint8_t *cap_buf;
 settings_t capture_settings;
 uint16_t offset;
+static int cap_prog_loaded = -1; // -1: none, 0: capture_0, 1: capture_1
 
 uint32_t frame_count = 0;
 
@@ -61,10 +64,51 @@ void check_settings(settings_t *settings)
     settings->pin_inversion_mask = PIN_INVERSION_MASK;
 }
 
+void update_pio_ext_clk_divider(uint8_t divider) {
+    if (capture_settings.cap_sync_mode == EXT) {
+        PIO_CAP->instr_mem[offset + 1] = set_opcode | ((divider - 1) & 0b00011111);
+        PIO_CAP->instr_mem[offset + 8] = set_opcode | ((divider - 1) & 0b00011111);
+    }
+}
+
 void set_capture_settings(settings_t *settings)
 {
   memcpy(&capture_settings, settings, sizeof(settings_t));
   check_settings(&capture_settings);
+}
+
+void set_ext_clk_divider(uint8_t divider) {
+    if (divider > EXT_CLK_DIVIDER_MAX)
+        capture_settings.ext_clk_divider = EXT_CLK_DIVIDER_MAX;
+    else if (divider < EXT_CLK_DIVIDER_MIN)
+        capture_settings.ext_clk_divider = EXT_CLK_DIVIDER_MIN;
+    else
+        capture_settings.ext_clk_divider = divider;
+
+    // Обновляем делитель в PIO программе
+    if (capture_settings.cap_sync_mode == EXT) {
+        if (capture_settings.ext_clk_divider == 1) {
+            uint32_t interrupts = save_and_disable_interrupts();
+            
+            // Кратковременно останавливаем SM
+            pio_sm_set_enabled(PIO_CAP, SM_CAP, false);
+            
+            // Быстро записываем 0 в инструкции (1 цикл)
+            PIO_CAP->instr_mem[offset + 1] = set_opcode | 0;
+            PIO_CAP->instr_mem[offset + 8] = set_opcode | 0;
+            
+            // Немедленно включаем обратно
+            pio_sm_set_enabled(PIO_CAP, SM_CAP, true);
+            
+            // Восстанавливаем прерывания
+            restore_interrupts(interrupts);
+        } else {
+            // Обычный подход для остальных делителей
+            uint8_t pio_value = (capture_settings.ext_clk_divider - 1) & 0b00011111;
+            PIO_CAP->instr_mem[offset + 1] = set_opcode | pio_value;
+            PIO_CAP->instr_mem[offset + 8] = set_opcode | pio_value;
+        }
+    }
 }
 
 int16_t set_capture_shX(int16_t shX)
@@ -133,8 +177,8 @@ void __not_in_flash_func(dma_handler_capture())
   register int x = x_s;
   register int y = y_s;
 
-  static uint8_t *cap_buf8_s = g_v_buf;
-  uint8_t *cap_buf8 = cap_buf8_s;
+  static uint8_t *cap_buf8_s = NULL; // установим при первом кадре
+  uint8_t *cap_buf8 = cap_buf8_s ? cap_buf8_s : g_v_buf;
 
   static uint CS_idx_s = 0;
   uint CS_idx = CS_idx_s;
@@ -167,13 +211,11 @@ void __not_in_flash_func(dma_handler_capture())
         continue;
 
       // start capture of a new frame
-      if (y >= 0)
-      {
-        if (frame_count > 10) // power on delay // noise immunity at the sync input
-          cap_buf = get_v_buf_in();
-
-        frame_count++;
-      }
+  if (y >= 0)
+  {
+    cap_buf = get_v_buf_in();
+    frame_count++;
+  }
 
       y = -shY - 1;
       continue;
@@ -248,8 +290,11 @@ void start_capture(settings_t *settings)
     gpio_set_dir(i, GPIO_IN);
     gpio_set_input_hysteresis_enabled(i, true);
 
+    // ЯВНО задаём режим входа для каждого бита: либо INVERT, либо NORMAL.
     if (inv_mask & 1)
       gpio_set_inover(i, GPIO_OVERRIDE_INVERT);
+    else
+      gpio_set_inover(i, GPIO_OVERRIDE_NORMAL);
 
     inv_mask >>= 1;
   }
@@ -264,7 +309,12 @@ void start_capture(settings_t *settings)
     // set initial capture delay
     pio_program_capture_0_instructions[0] = nop_opcode | ((capture_settings.delay & 0b00011111) << 8);
     // load PIO program
-    offset = pio_add_program(PIO_CAP, &pio_program_capture_0);
+    if (cap_prog_loaded != 0) {
+      // unload previous if different
+      if (cap_prog_loaded == 1) pio_remove_program(PIO_CAP, &pio_program_capture_1, offset);
+      offset = pio_add_program(PIO_CAP, &pio_program_capture_0);
+      cap_prog_loaded = 0;
+    }
     // set capture delay = 0
     pio_program_capture_0_instructions[0] = nop_opcode;
 
@@ -281,7 +331,11 @@ void start_capture(settings_t *settings)
     pio_program_capture_1_instructions[1] = set_opcode | ((capture_settings.ext_clk_divider - 1) & 0b00011111);
     pio_program_capture_1_instructions[8] = set_opcode | ((capture_settings.ext_clk_divider - 1) & 0b00011111);
     // load PIO program
-    offset = pio_add_program(PIO_CAP, &pio_program_capture_1);
+    if (cap_prog_loaded != 1) {
+      if (cap_prog_loaded == 0) pio_remove_program(PIO_CAP, &pio_program_capture_0, offset);
+      offset = pio_add_program(PIO_CAP, &pio_program_capture_1);
+      cap_prog_loaded = 1;
+    }
     // set capture delay = 0
     pio_program_capture_1_instructions[0] = nop_opcode;
 
@@ -315,8 +369,8 @@ void start_capture(settings_t *settings)
   pio_sm_set_enabled(PIO_CAP, SM_CAP, true);
 
   // DMA initialization
-  int dma_ch0 = dma_claim_unused_channel(true);
-  dma_ch1 = dma_claim_unused_channel(true);
+  if (dma_ch0 == -1) dma_ch0 = dma_claim_unused_channel(true);
+  if (dma_ch1 == -1) dma_ch1 = dma_claim_unused_channel(true);
 
   // main (data) DMA channel
   dma_channel_config c0 = dma_channel_get_default_config(dma_ch0);
@@ -363,4 +417,28 @@ void start_capture(settings_t *settings)
   irq_set_enabled(DMA_IRQ_1, true);
 
   dma_start_channel_mask((1u << dma_ch0));
+
+  uint8_t *warm = (uint8_t*)get_v_buf_in();
+  (void)warm;
+}
+
+void stop_capture(void)
+{
+  // Останавливаем DMA и PIO захвата
+  dma_channel_abort(dma_ch1);
+  pio_sm_set_enabled(PIO_CAP, SM_CAP, false);
+}
+
+void apply_pin_inversion_mask(uint8_t mask)
+{
+  // Применяем инверсию на лету без остановки SM/DMA
+  for (int i = 0; i < 7; i++)
+  {
+    int gpio = CAP_PIN_D0 + i;
+    if (mask & (1u << i))
+      gpio_set_inover(gpio, GPIO_OVERRIDE_INVERT);
+    else
+      gpio_set_inover(gpio, GPIO_OVERRIDE_NORMAL);
+  }
+  capture_settings.pin_inversion_mask = mask;
 }

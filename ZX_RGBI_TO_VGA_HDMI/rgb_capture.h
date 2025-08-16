@@ -14,9 +14,14 @@ extern uint32_t frame_count;
 int16_t set_capture_shX(int16_t shX);
 int16_t set_capture_shY(int16_t shY);
 int8_t set_capture_delay(int8_t delay);
+void update_pio_capture_delay(uint8_t delay);
+void update_pio_ext_clk_divider(uint8_t divider);
+void set_ext_clk_divider(uint8_t divider);
 void set_video_sync_mode(bool video_sync_mode);
 void check_settings(settings_t *settings);
 void calculate_clkdiv(float frequency, uint16_t *div_int, uint8_t *div_frac);
 void start_capture(settings_t *settings);
+void stop_capture(void);
+void apply_pin_inversion_mask(uint8_t mask);
 
 #endif

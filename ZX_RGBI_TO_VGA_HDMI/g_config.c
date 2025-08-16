@@ -87,4 +87,4 @@ video_mode_t vga_1280x1024_d4 = {
 
 video_mode_t *vga_modes[] = {&vga_640x480, &vga_640x480, &vga_800x600, &vga_1024x768, &vga_1280x1024_d3, &vga_1280x1024_d4};
 
-uint8_t g_v_buf[V_BUF_SZ * 3];
+uint8_t *g_v_buf = NULL;

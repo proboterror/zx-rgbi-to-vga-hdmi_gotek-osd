@@ -1,3 +1,4 @@
+#include "osd_menu_wrapper.h"
 #include <Arduino.h>
 #include <typeinfo>
 #include "hardware/pio.h"
@@ -5,6 +6,7 @@
 #include "ws2812.pio.h" // Автоматически генерируется из .pio файла
 #include "pico/usb_reset_interface.h"
 #include "hardware/structs/usb.h"
+#include <stdarg.h>
 
 // Внешние C-библиотеки
 extern "C" {
@@ -19,8 +21,8 @@ extern "C" {
     #include "rgb_capture.h"       // Захват RGB видео
     #include "stdio.h"             // Стандартный ввод/вывод
     #include "v_buf.h"             // Видеобуфер
-    #include "VGA.h"               // VGA вывод
-    #include "DVI.h"               // DVI вывод
+    #include "vga.h"               // VGA вывод
+    #include "dvi.h"               // DVI вывод
 }
 
 #define LED_PIN 16
@@ -29,17 +31,8 @@ extern "C" {
 
 #define BUTTON_DEBOUNCE_MS 50    // Время антидребезга
 #define BUTTON_LONG_PRESS_MS 3000 // Время длинного нажатия (3 секунды)
-#define LED_RESET_BLINK_INTERVAL 200 // Интервал мигания при сбросе
 
-// Цвета для светодиода (в формате GRB для WS2812)
-#define LED_OFF     0x000000
-#define LED_RED     0x00FF00  // Было 0xFF0000
-#define LED_GREEN   0xFF0000  // Было 0x00FF00
-#define LED_BLUE    0x0000FF
-#define LED_YELLOW  0xFFFF00  // Остается таким же (R+G)
-#define LED_CYAN    0x00FFFF  // Остается таким же (G+B)
-#define LED_MAGENTA 0xFF00FF  // Остается таким же (R+B)
-#define LED_WHITE   0xFFFFFF
+// Цвета определены в g_config.h
 
 // Определения для удобства
 #define printf Serial.printf
@@ -62,6 +55,27 @@ const settings_t DEFAULT_SETTINGS = {
 
 settings_t settings = DEFAULT_SETTINGS; // Активные настройки
 
+void log_message(const char* format, ...) {
+    if (!Serial) return;
+    
+    // Проверяем размер буфера для предотвращения переполнения
+    va_list args;
+    va_start(args, format);
+    
+    // Используем временный буфер достаточного размера
+    char buffer[256];
+    int written = vsnprintf(buffer, sizeof(buffer), format, args);
+    
+    // Проверяем успешность форматирования
+    if (written > 0 && written < (int)sizeof(buffer)) {
+        Serial.print(buffer);
+    } else {
+        Serial.print("Ошибка форматирования лога\n");
+    }
+    
+    va_end(args);
+}
+
 void safe_restart() {
     // Даем время на сброс
     sleep_ms(100);
@@ -69,9 +83,21 @@ void safe_restart() {
     rp2040.restart();
 }
 
-bool is_vga_cable_connected() {
+// Нежесткий запрос рестарта из другого контекста (OSD)
+static volatile bool g_restart_requested = false;
+extern "C" void request_restart(void) {
+    g_restart_requested = true;
+}
+
+extern "C" bool is_vga_cable_connected(void) {
     // 1. Выбираем один из выходных пинов VGA 
     const uint vga_pin = VGA_PIN_D0;
+    
+    // Проверяем валидность пина
+    if (vga_pin >= 30) { // RP2040 имеет 30 GPIO пинов
+        printf("Ошибка: недопустимый VGA пин %d\n", vga_pin);
+        return false;
+    }
     
     // 2. Сохраняем текущее состояние пина
     gpio_set_dir(vga_pin, GPIO_IN);
@@ -86,12 +112,17 @@ bool is_vga_cable_connected() {
     // 4. Проверяем скорость разряда
     gpio_set_dir(vga_pin, GPIO_IN);
     uint32_t start = time_us_32();
-    while(gpio_get(vga_pin)) {
-        if(time_us_32() - start > 10) break; // Таймаут 10 мкс
+    uint32_t timeout_counter = 0;
+    const uint32_t max_timeout = 10; // Таймаут 10 мкс
+    
+    while(gpio_get(vga_pin) && timeout_counter < max_timeout) {
+        timeout_counter++;
+        busy_wait_us(1);
     }
-    uint32_t discharge_time = time_us_32() - start;
+    uint32_t discharge_time = timeout_counter;
     
     printf("Discharge time: %d μs\n", discharge_time);
+    
     // 5. Восстанавливаем состояние
     gpio_set_pulls(vga_pin, orig_pull, !orig_pull);
     
@@ -100,113 +131,113 @@ bool is_vga_cable_connected() {
     return (discharge_time < 5); // Эмпирическое значение, требует калибровки
 }
 
+// Минимальный драйвер WS2812 (1 светодиод)
+static bool g_ws_inited = false;
+static PIO g_ws_pio = pio1;
+static uint g_ws_sm = 1;
+static uint g_ws_offset = 0;
+
 // Инициализация PIO для WS2812
-void neopixel_init() {
-    PIO pio = pio1; // Используем PIO1
-    int sm = 1;     // Используем SM1 (было SM0)
-    uint offset = pio_add_program(pio, &ws2812_program);
-    ws2812_program_init(pio, sm, offset, LED_PIN, 800000, false);
-    printf("WS2812 на PIO%d, SM%d\n", pio == pio0 ? 0 : 1, sm);
+bool neopixel_init() {
+    if (g_ws_inited) return true;
+    // Загружаем программу в PIO1, используем SM1 (SM0 занят захватом)
+    g_ws_offset = pio_add_program(g_ws_pio, &ws2812_program);
+    ws2812_program_init(g_ws_pio, g_ws_sm, g_ws_offset, LED_PIN, 800000.0f, false);
+    g_ws_inited = true;
+    return true;
 }
 
-// Установка цвета (не блокирует ядро!)
+// Установка цвета (GRB)
 void neopixel_set_color(uint32_t color) {
-    pio_sm_put_blocking(pio1, 1, color << 8u); // Используем SM1
+    if (!g_ws_inited) return;
+    pio_sm_put_blocking(g_ws_pio, g_ws_sm, (color << 8));
 }
 
-void set_led(bool state, uint32_t color = LED_GREEN) {
-#ifdef WAVESHARE_RP2040_ZERO
-    static bool led_state = false;
-    static uint32_t led_color = LED_GREEN;  // По умолчанию зеленый
-
-    led_state = state;
-    if (color != 0) led_color = color;
-
-    if (!state) {
-        neopixel_set_color(LED_OFF);
-    } else {
-        neopixel_set_color(led_color);
+extern "C" void set_led(bool state, uint32_t color /*= LED_GREEN*/) {
+    if (!g_ws_inited) {
+        if (!neopixel_init()) return;
     }
-#else
-    digitalWrite(LED_BUILTIN, state ? HIGH : LOW);
-#endif
+    neopixel_set_color(state ? color : 0);
 }
 
 void check_button() {
-    static uint32_t press_start_time = 0;
-    static bool button_pressed = false;
-    static bool long_press_handled = false;
-    static bool reset_in_progress = false;
-    static uint32_t last_blink_time = 0;
+    static uint32_t press_time = 0;
+    static bool pressed = false;
+    static uint32_t last_check = 0;
+    
+    // Ограничиваем частоту проверки для экономии ресурсов
     uint32_t current_time = millis();
+    if (current_time - last_check < 10) return;
+    last_check = current_time;
+    
+    bool btn_state = digitalRead(RESET_PIN);
 
-    bool current_state = digitalRead(RESET_PIN);
-
-    // Обработка сброса (мигание светодиодом)
-    if (reset_in_progress) {
-        if (current_time - last_blink_time >= LED_RESET_BLINK_INTERVAL) {
-            set_led(!digitalRead(LED_PIN), LED_RED); // Мигаем красным
-            last_blink_time = current_time;
-        }
+    if (!pressed && !btn_state) {
+        pressed = true;
+        press_time = current_time;
         return;
     }
 
-    // Обработка нажатия
-    if (!button_pressed && current_state == LOW) {
-        // Начало нажатия
-        button_pressed = true;
-        press_start_time = current_time;
-        long_press_handled = false;
-        return;
-    }
-
-    if (button_pressed && current_state == HIGH) {
-        // Кнопка отпущена
-        button_pressed = false;
+    if (pressed && btn_state) {
+        pressed = false;
+        uint32_t duration = current_time - press_time;
         
-        // Короткое нажатие (если длинное не было обработано)
-        if (!long_press_handled && (current_time - press_start_time < BUTTON_LONG_PRESS_MS)) {
-            // Инвертируем 7-й бит и обновляем состояние OSD
-            settings.pin_inversion_mask ^= (1 << 7);
-            i2c_display.on = (settings.pin_inversion_mask & (1 << 7)) != 0;
-            
-            if (settings.pin_inversion_mask & (1 << 7)) {
-                set_led(true, LED_GREEN);
-            } else {
-                set_led(true, LED_YELLOW);
+        // Проверяем минимальное время нажатия для антидребезга
+        if (duration > BUTTON_DEBOUNCE_MS) {
+            // Для кнопки меню используем только короткие нажатия
+            if (duration < BUTTON_LONG_PRESS_MS) {
+                osd_menu_process(ENTER_BUTTON);
             }
         }
-        return;
-    }
-
-    // Обработка длинного нажатия
-    if (button_pressed && !long_press_handled && 
-        (current_time - press_start_time >= BUTTON_LONG_PRESS_MS)) {
-        
-        long_press_handled = true;
-        reset_in_progress = true;
-        last_blink_time = current_time;
-        
-        // Сброс к заводским настройкам
-        printf("default...\n");
-        settings = DEFAULT_SETTINGS;
-        save_settings(&settings);
-        
-        // Мигаем красным 3 раза
-        for (int i = 0; i < 3; i++) {
-            set_led(true, LED_RED);
-            delay(200);
-            set_led(false, LED_RED);
-            delay(200);
-        }
-        
-        // Перезагрузка
-        printf("Reboot...\n");
-        delay(100);
-        rp2040.restart();
     }
 }
 
+// для кнопок навигации
+uint8_t check_navigation_buttons() {
+    static uint32_t up_press_time = 0, down_press_time = 0;
+    static bool up_pressed = false, down_pressed = false;
+    static uint32_t last_up_release = 0, last_down_release = 0;
+    static uint32_t last_check = 0;
+    
+    // Ограничиваем частоту проверки для экономии ресурсов
+    uint32_t current_time = millis();
+    if (current_time - last_check < 10) return 0;
+    last_check = current_time;
+    
+    bool up_state = digitalRead(26);
+    bool down_state = digitalRead(27);
+    uint8_t buttons = 0;
+    
+    // UP button edge detection
+    if (!up_pressed && !up_state) {
+        up_pressed = true;
+        up_press_time = current_time;
+    } else if (up_pressed && up_state) {
+        up_pressed = false;
+        uint32_t duration = current_time - up_press_time;
+        // Проверяем антидребезг и короткое нажатие
+        if (duration > 20 && duration < 1000 && (current_time - last_up_release > 100)) {
+            buttons |= 0x01; // UP
+            last_up_release = current_time;
+        }
+    }
+    
+    // DOWN button edge detection
+    if (!down_pressed && !down_state) {
+        down_pressed = true;
+        down_press_time = current_time;
+    } else if (down_pressed && down_state) {
+        down_pressed = false;
+        uint32_t duration = current_time - down_press_time;
+        // Проверяем антидребезг и короткое нажатие
+        if (duration > 20 && duration < 1000 && (current_time - last_down_release > 100)) {
+            buttons |= 0x02; // DOWN
+            last_down_release = current_time;
+        }
+    }
+    
+    return buttons;
+}
 
 uint16_t Fletcher16(uint8_t *data, int count) {
   uint16_t sum1 = 0;
@@ -229,10 +260,10 @@ struct flash_settings_t {
 const int *saved_settings = (const int *)(XIP_BASE + (PICO_FLASH_SIZE_BYTES - FLASH_SECTOR_SIZE));
 bool is_start_core0 = false;
 
-void save_settings(settings_t *settings) {
-  flash_settings_t* flash_settings = (flash_settings_t*)malloc(FLASH_PAGE_SIZE);
-
-  *flash_settings = {
+extern "C" void save_settings(settings_t *settings) {
+  static flash_settings_t flash_settings_buffer;
+  
+  flash_settings_buffer = {
     *settings,
     Fletcher16((uint8_t*)settings, sizeof(settings_t))
   };
@@ -241,7 +272,7 @@ void save_settings(settings_t *settings) {
   uint32_t ints = save_and_disable_interrupts();
 
   flash_range_erase((PICO_FLASH_SIZE_BYTES - FLASH_SECTOR_SIZE), FLASH_SECTOR_SIZE);
-  flash_range_program((PICO_FLASH_SIZE_BYTES - FLASH_SECTOR_SIZE), (uint8_t *)flash_settings, FLASH_PAGE_SIZE);
+  flash_range_program((PICO_FLASH_SIZE_BYTES - FLASH_SECTOR_SIZE), (uint8_t *)&flash_settings_buffer, FLASH_PAGE_SIZE);
 
   restore_interrupts(ints);
   rp2040.resumeOtherCore();
@@ -264,26 +295,10 @@ void setup() {
 
     Serial.begin(115200);
     
-    neopixel_init();
-    set_led(true, LED_CYAN);  // Временный индикатор загрузки
 
     // Добавьте задержку перед загрузкой настроек
     sleep_ms(500);  // Даем время на стабилизацию питания
     
-    // Инициализация светодиода в зависимости от режима
-    if (watchdog_caused_reboot() && Serial) {
-        // Режим настройки - фиолетовый
-        set_led(true, LED_MAGENTA);
-    } else {
-        // Нормальный режим - зеленый
-        if (settings.pin_inversion_mask & (1 << 7)) {
-            set_led(true, LED_GREEN);
-        } else {
-            set_led(true, LED_YELLOW);
-        }
-    }
-    
-
 #ifndef WAVESHARE_RP2040_ZERO
     zx_keyboard_init();
     ps2_keyboard_init();
@@ -295,8 +310,10 @@ void setup() {
     
     if(checksum == flash_settings->checksum) {
         memcpy(&settings, saved_settings, sizeof(settings_t));
+//        printf("Настройки загружены из flash\n");
     } else {
         settings = DEFAULT_SETTINGS;
+//        printf("Используются настройки по умолчанию\n");
     }
         
     check_settings(&settings);
@@ -310,14 +327,27 @@ void setup() {
         delay(3000);  // Даем время на открытие порта
         
         if (Serial) {
-            set_led(true, LED_MAGENTA);  // Фиолетовый в режиме настройки
             
             while(1) {
                 if (Serial.available()) {
                     String s1 = Serial.readStringUntil('\n');
                     if (s1.length() == 0) continue;
                 
-                    sscanf(s1.c_str(), "%19s%d", s_key, &s_data);
+                    // Проверяем длину строки для безопасности
+                    if (s1.length() > 50) {
+//                        printf("Ошибка: слишком длинная команда\n");
+                        continue;
+                    }
+                    
+                    char s_key[20];
+                    int s_data;
+                    int parsed = sscanf(s1.c_str(), "%19s%d", s_key, &s_data);
+                    
+                    // Проверяем успешность парсинга
+                    if (parsed < 1) {
+//                        printf("Ошибка: неверный формат команды\n");
+                        continue;
+                    }
 
                     if (strcmp(s_key, "ping") == 0) { printf("ping ok\n"); continue; }
                     if (strcmp(s_key, "mode") == 0) { printf("mode 0\n"); continue; }
@@ -365,8 +395,24 @@ void setup() {
     // Пропускаем конфигурацию и сразу запускаем видео
     }
 
-    // Проверка подключения кабеля с учетом режима
-    if (is_vga_cable_connected()) {
+    // Инициализация OSD меню
+    osd_menu_init(&settings);
+    
+    // Инициализация пинов кнопок навигации меню
+    gpio_init(26); // UP
+    gpio_set_dir(26, GPIO_IN);
+    gpio_pull_up(26);
+    
+    gpio_init(27); // DOWN
+    gpio_set_dir(27, GPIO_IN);
+    gpio_pull_up(27);
+
+    // Проверка подключения кабеля один раз при старте и сохранение результата для меню
+    const bool vga_connected_once = is_vga_cable_connected();
+    osd_menu_set_vga_connected(vga_connected_once);
+
+    // Используем кэш при первичной настройке видео в авто-режиме
+    if (vga_connected_once) {
         if (!settings.manual_output_mode) {
             settings.video_out_mode = VGA640x480;
             printf("VGA cable detected (auto mode)\n");
@@ -385,8 +431,20 @@ void setup() {
     // Еще небольшая задержка перед запуском видео
     sleep_ms(100);
 
+    // Выделяем видеобуфер ПОСЛЕ выбора режима
+    // Всегда пере-выделяем буфер на нужное количество страниц при старте,
+    // чтобы исключить рассинхронизацию после перезапуска
+    if (g_v_buf) { free(g_v_buf); g_v_buf = NULL; }
+    {
+        size_t buffers = settings.x3_buffering_mode ? 3 : 1;
+        g_v_buf = (uint8_t*)calloc(V_BUF_SZ * buffers, 1);
+        if (!g_v_buf && buffers == 3) {
+            g_v_buf = (uint8_t*)calloc(V_BUF_SZ, 1);
+            settings.x3_buffering_mode = false;
+        }
+    }
+    // Инициализируем состояние буферов согласно актуальному режиму
     set_v_buf_buffering_mode(settings.x3_buffering_mode);
-    draw_welcome_screen(*(vga_modes[settings.video_out_mode]));
 
     set_scanlines_mode();
 
@@ -396,58 +454,49 @@ void setup() {
         start_vga(*(vga_modes[settings.video_out_mode]));
     }
 
-    // Установка финального цвета светодиода
-    if (Serial && Serial.available()) {
-        set_led(true, LED_MAGENTA);  // Фиолетовый в режиме настройки
-    } else {
-        if (settings.pin_inversion_mask & (1 << 7)) {
-            set_led(true, LED_GREEN);
-        } else {
-            set_led(true, LED_YELLOW);
-        }
-    }
-
     is_start_core0 = true;
 }
 
 void loop() {
+    static uint32_t last_log = 0;
     static uint32_t last_button_check = 0;
     static uint32_t last_serial_check = 0;
-    static uint32_t last_led_update = 0;
     uint32_t current_time = millis();
 
-    //if (current_time - last_button_check >= 10) {
-    //    last_button_check = current_time;
+    // Логирование каждую секунду
+    if (current_time - last_log > 1000) {
+        last_log = current_time;
+//        log_message("System alive - Menu active: %s\n", osd_menu_is_active() ? "YES" : "NO");
+    }
+    
+    // Проверка кнопки каждые 10мс
+    if (current_time - last_button_check >= 10) {
+        last_button_check = current_time;
         check_button();
-    //}
+    }
 
+    // Проверка Serial каждые 50мс
     if (current_time - last_serial_check >= 50) {
         last_serial_check = current_time;
-        
-
-        // Обновляем цвет светодиода при изменении состояния Serial
-        static bool last_serial_state = false;
-        bool current_serial_state = (Serial && Serial.available());
-        if (current_serial_state != last_serial_state) {
-            if (current_serial_state) {
-                set_led(true, LED_MAGENTA);  // Фиолетовый в режиме настройки
-            } else {
-                if (settings.pin_inversion_mask & (1 << 7)) {
-                    set_led(true, LED_GREEN);
-                } else {
-                set_led(true, LED_YELLOW);
-                }
-            }
-            last_serial_state = current_serial_state;
-        }
-
         if (Serial.available()) {
             String s1 = Serial.readStringUntil('\n');
             if (s1.length() > 0) {
+                // Проверяем длину строки для безопасности
+                if (s1.length() > 50) {
+ //                   printf("Ошибка: слишком длинная команда\n");
+                    return;
+                }
+                
                 char s_key[20];
                 int s_data;
-                sscanf(s1.c_str(), "%19s%d", s_key, &s_data);
+                int parsed = sscanf(s1.c_str(), "%19s%d", s_key, &s_data);
                 
+                // Проверяем успешность парсинга
+                if (parsed < 1) {
+//                    printf("Ошибка: неверный формат команды\n");
+                    return;
+                }
+
                 if (strcmp(s_key, "ping") == 0) {
                     printf("ping ok\n");
                 } 
@@ -494,11 +543,8 @@ void loop() {
         }
     }
 
-    if (current_time - last_led_update >= 100) {
-        last_led_update = current_time;
-    }
-
-    delay(1);
+    // Увеличиваем задержку для снижения нагрузки на CPU
+    delay(5);
 }
 
 void setup1() {
@@ -507,16 +553,47 @@ void setup1() {
     start_capture(&settings);
 }
 
+
 void loop1() {
-    uint8_t inv0_mask = settings.pin_inversion_mask;
-    if (bitRead(inv0_mask, 7)) {
-        osd_process();
-    } else {
-        // Явно отключаем OSD, если 7-й бит сброшен
-        i2c_display.on = false;
+    static uint32_t last_button_check = 0;
+    static uint32_t last_keyboard_update = 0;
+    uint32_t current_time = millis();
+ 
+    while(true) {
+        current_time = millis();
+        if (g_restart_requested) {
+            g_restart_requested = false;
+            safe_restart();
+        }
+        
+        // Проверка кнопок навигации каждые 10мс
+        if (current_time - last_button_check >= 10) {
+            last_button_check = current_time;
+            uint8_t buttons = check_navigation_buttons();
+     
+            if (osd_menu_is_active()) {
+               osd_menu_process(buttons);
+            }
+            
+            uint8_t inv0_mask = settings.pin_inversion_mask;
+            if (bitRead(inv0_mask, 7)) {
+                osd_process();
+            } else {
+                // Явно отключаем OSD, если 7-й бит сброшен
+                i2c_display.on = false;
+            }
+            
+            osd_menu_process_pending_updates();
+        }
+        
+        // Обновление клавиатуры каждые 20мс
+        if (current_time - last_keyboard_update >= 20) {
+            last_keyboard_update = current_time;
+        #ifndef WAVESHARE_RP2040_ZERO
+            zx_keyboard_update();
+        #endif
+        }
+        
+        sleep_ms(5);
     }
-#ifndef WAVESHARE_RP2040_ZERO
-    zx_keyboard_update();
-#endif
-    sleep_ms(1);
 }

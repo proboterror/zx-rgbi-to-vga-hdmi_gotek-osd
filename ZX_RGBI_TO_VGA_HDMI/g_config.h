@@ -10,7 +10,30 @@
 #include "inttypes.h"
 #include "stdbool.h"
 
+#define WAVESHARE_RP2040_ZERO
 #define FW_VERSION "v1.2.1"
+
+// LED colors (GRB order for WS2812)
+typedef enum led_color_t {
+  LED_OFF     = 0x000000,
+  LED_RED     = 0x00FF00,
+  LED_GREEN   = 0xFF0000,
+  LED_BLUE    = 0x0000FF,
+  LED_YELLOW  = 0xFFFF00,
+  LED_CYAN    = 0x00FFFF,
+  LED_MAGENTA = 0xFF00FF,
+  LED_WHITE   = 0xFFFFFF,
+} led_color_t;
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+void set_led(bool state, uint32_t color);
+void safe_restart(void);
+void request_restart(void);
+#ifdef __cplusplus
+}
+#endif
 
 enum cap_sync_mode_t
 {
@@ -74,8 +97,8 @@ extern video_mode_t vga_1280x1024_d4;
 
 extern video_mode_t *vga_modes[];
 
-extern uint8_t g_v_buf[];
-extern uint32_t frame_count;
+extern uint8_t *g_v_buf;
+//extern uint32_t frame_count;
 
 #define BOARD_CODE_36LJU22
 // #define BOARD_CODE_09LJV23
