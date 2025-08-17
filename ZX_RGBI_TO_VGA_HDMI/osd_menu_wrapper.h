@@ -1,5 +1,4 @@
-#ifndef OSD_MENU_WRAPPER_H
-#define OSD_MENU_WRAPPER_H
+#pragma once
 
 #include "g_config.h"
 
@@ -90,6 +89,4 @@ void osd_menu_refresh_render_buf(void);
 
 #ifdef __cplusplus
 }
-#endif
-
 #endif

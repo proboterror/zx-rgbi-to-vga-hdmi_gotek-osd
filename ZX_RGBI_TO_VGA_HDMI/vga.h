@@ -1,16 +1,6 @@
 #ifndef VGA_H
 #define VGA_H
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-void log_message(const char* format, ...);
-
-#ifdef __cplusplus
-}
-#endif
-
 // sync pulse patterns (positive polarity)
 #define NO_SYNC 0b00000000
 #define V_SYNC 0b10000000
