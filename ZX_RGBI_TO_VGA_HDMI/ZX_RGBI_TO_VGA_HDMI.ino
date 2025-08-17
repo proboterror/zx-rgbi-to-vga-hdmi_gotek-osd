@@ -29,12 +29,8 @@ extern "C" {
 #define LED_PIN 16
 #define LED_COUNT 1
 #define MENU_PIN 28
-#ifndef MENU_PIN_UP
 #define MENU_PIN_UP 26
-#endif
-#ifndef MENU_PIN_DOWN
 #define MENU_PIN_DOWN 27
-#endif
 
 #define BUTTON_DEBOUNCE_MS 50    // Время антидребезга
 #define BUTTON_LONG_PRESS_MS 3000 // Время длинного нажатия (3 секунды)

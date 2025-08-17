@@ -401,26 +401,3 @@ void set_osd_buttons(uint8_t buttons)
 {
     i2c_osd_info.buttons = buttons;
 }
-
-// Функции для работы с OSD строкой Gotek
-static bool gotek_osd_visible = true;
-
-const char* get_gotek_osd_line(uint8_t line_index)
-{
-    if (line_index >= 4 || !gotek_osd_visible || !i2c_display.on) {
-        return NULL;
-    }
-    
-    // Возвращаем указатель на строку из i2c_display
-    return (const char*)i2c_display.text[line_index];
-}
-
-bool is_gotek_osd_active(void)
-{
-    return gotek_osd_visible && i2c_display.on;
-}
-
-void set_gotek_osd_visibility(bool visible)
-{
-    gotek_osd_visible = visible;
-}
