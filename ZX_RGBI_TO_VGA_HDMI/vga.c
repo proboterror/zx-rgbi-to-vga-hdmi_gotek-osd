@@ -203,9 +203,6 @@ static uint16_t __not_in_flash_func(render_i2c_osd_line)(uint16_t y, const struc
     return pixels;
 }
 
-    return pixels;
-}
-
 void __not_in_flash_func(memset32)(uint32_t *dst, const uint32_t data, uint32_t size);
 
 void __not_in_flash_func(dma_handler_vga)()
