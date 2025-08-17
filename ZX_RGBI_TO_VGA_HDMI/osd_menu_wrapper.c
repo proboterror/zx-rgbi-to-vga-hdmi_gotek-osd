@@ -3,6 +3,7 @@
 #include "hardware/pio.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include "hardware/gpio.h"
 #include "rgb_capture.h"
 #include "vga.h"
@@ -16,6 +17,8 @@ typedef struct {
     uint8_t render_buf[MENU_ROWS][MENU_COLS];
     volatile bool pending_ext_clk_update;
     volatile bool pending_video_restart;
+    volatile bool pending_capture_restart;
+    volatile bool pending_buffering_apply;
 } osd_ctx_t;
 
 static osd_ctx_t g_osd_ctx = {
@@ -25,6 +28,8 @@ static osd_ctx_t g_osd_ctx = {
     .render_buf = {{0}},
     .pending_ext_clk_update = false,
     .pending_video_restart = false,
+    .pending_capture_restart = false,
+    .pending_buffering_apply = false,
 };
 
 #define SELECTION_MARKER ">"
@@ -64,9 +69,9 @@ void osd_menu_refresh_render_buf(void) {
     // Верхняя граница:
     if (g_osd_ctx.render_rows_count < MENU_ROWS) {
         uint8_t *row = g_osd_ctx.render_buf[g_osd_ctx.render_rows_count++];
-        row[0] = 0xDA;
-        for (int c = 1; c < MENU_VISIBLE_COLS - 1; c++) row[c] = 0xC4;
-        row[MENU_VISIBLE_COLS - 1] = 0xBF;
+        row[0] = 0xDA; // ┌
+        for (int c = 1; c < MENU_VISIBLE_COLS - 1; c++) row[c] = 0xC4; // ─
+        row[MENU_VISIBLE_COLS - 1] = 0xBF; // ┐
         // Центрируем заголовок в верхней границе
         const char *title = " RGB2VGA Menu ";
         int title_len = (int)strlen(title);
@@ -81,7 +86,7 @@ void osd_menu_refresh_render_buf(void) {
     for (int i = 0; i < items && g_osd_ctx.render_rows_count < MENU_ROWS; i++) {
         uint8_t *row = g_osd_ctx.render_buf[g_osd_ctx.render_rows_count++];
         // Левый бордер
-        row[0] = 0xB3; // ║
+        row[0] = 0xB3; // │
         // Заполняем контентную область пробелами
         for (int c = 0; c < content_width; c++) row[1 + c] = ' ';
 
@@ -97,15 +102,15 @@ void osd_menu_refresh_render_buf(void) {
             memcpy(row + 2, MENU_STATE.menu_display[i], tlen);
         }
         // Правый бордер
-        row[MENU_VISIBLE_COLS - 1] = 0xB3;
+        row[MENU_VISIBLE_COLS - 1] = 0xB3; // │
     }
 
     // Нижняя граница:
     if (g_osd_ctx.render_rows_count < MENU_ROWS) {
         uint8_t *row = g_osd_ctx.render_buf[g_osd_ctx.render_rows_count++];
-        row[0] = 0xC0;
-        for (int c = 1; c < MENU_VISIBLE_COLS - 1; c++) row[c] = 0xC4;
-        row[MENU_VISIBLE_COLS - 1] = 0xD9;
+        row[0] = 0xC0; // └
+        for (int c = 1; c < MENU_VISIBLE_COLS - 1; c++) row[c] = 0xC4; // ─
+        row[MENU_VISIBLE_COLS - 1] = 0xD9; // ┘
     }
 }
 
@@ -224,7 +229,7 @@ void osd_menu_init(settings_t* settings) {
     memset(&g_osd_ctx.menu, 0, sizeof(g_osd_ctx.menu));
     MENU_STATE.settings = settings;
     MENU_STATE.current_mode = MENU_MODE_MAIN;
-    MENU_STATE.submenu_selection = 0;
+    MENU_STATE.current_item = 0;
     for (int i = 0; i < MENU_ROWS; i++) {
         MENU_STATE.visible_items[i] = true;
     }
@@ -243,7 +248,6 @@ static bool check_menu_timeout(void) {
 static bool is_video_mode_allowed(enum video_out_mode_t mode) {
     if (!MENU_STATE.settings) return false;
     
-    // В ручном режиме разрешены все режимы
     if (MENU_STATE.settings->manual_output_mode) return true;
     
     bool vga_connected = g_osd_ctx.vga_connected_cached;
@@ -469,21 +473,33 @@ menu_mode_t osd_menu_get_mode(void) {
 void osd_menu_process_pending_updates(void) {
     if (g_osd_ctx.pending_ext_clk_update && MENU_STATE.settings) {
         if (MENU_STATE.settings->cap_sync_mode == EXT) {
-            if (MENU_STATE.settings->ext_clk_divider == 1) {
-                uint32_t current_time = to_ms_since_boot(get_absolute_time());
-                MENU_STATE.show_time = current_time + 5000;
-                MENU_STATE.last_button_time = current_time;
-                
                 set_ext_clk_divider(MENU_STATE.settings->ext_clk_divider);
-                
-                current_time = to_ms_since_boot(get_absolute_time());
-                MENU_STATE.show_time = current_time + 5000;
-                MENU_STATE.last_button_time = current_time;
-            } else {
-                set_ext_clk_divider(MENU_STATE.settings->ext_clk_divider);
-            }
         }
         g_osd_ctx.pending_ext_clk_update = false;
+    }
+
+    if (g_osd_ctx.pending_capture_restart && MENU_STATE.settings) {
+        // Безопасно перезапускаем захват на core1
+        stop_capture();
+        start_capture(MENU_STATE.settings);
+        g_osd_ctx.pending_capture_restart = false;
+    }
+
+    if (g_osd_ctx.pending_buffering_apply && MENU_STATE.settings) {
+        stop_capture();
+        uint8_t *old_buf = g_v_buf;
+        size_t buffers = MENU_STATE.settings->x3_buffering_mode ? 3 : 1;
+        uint8_t *new_buf = (uint8_t*)calloc(V_BUF_SZ * buffers, 1);
+        if (new_buf) {
+            g_v_buf = new_buf;
+            if (old_buf) free(old_buf);
+            set_v_buf_buffering_mode(MENU_STATE.settings->x3_buffering_mode);
+        } else {
+            // Не удалось выделить
+            // Восстанавливаем захват с прежним буфером
+        }
+        start_capture(MENU_STATE.settings);
+        g_osd_ctx.pending_buffering_apply = false;
     }
 }
 
@@ -534,9 +550,9 @@ void osd_menu_process(uint8_t buttons) {
             if (!(buttons & ENTER_BUTTON)) {
                 bool settings_changed = false;
                 
-                switch(MENU_STATE.current_item) {
-                    case 0: // зависит от текущего экрана
-                        if (MENU_STATE.current_mode == MENU_MODE_OUTPUT) {
+                if (MENU_STATE.current_mode == MENU_MODE_OUTPUT) {
+                    switch ((output_menu_item_t)MENU_STATE.current_item) {
+                        case OUTPUT_ITEM_VIDEO: {
                             if (!g_osd_ctx.vga_connected_cached) break;
                             enum video_out_mode_t new_mode = MENU_STATE.settings->video_out_mode;
                             const bool forward = (buttons & 0x02) != 0;
@@ -555,88 +571,74 @@ void osd_menu_process(uint8_t buttons) {
                             }
                             if (new_mode != MENU_STATE.settings->video_out_mode) {
                                 MENU_STATE.settings->video_out_mode = new_mode;
-                                g_osd_ctx.pending_video_restart = true; // как на порту: применим после Save
+                                g_osd_ctx.pending_video_restart = true;
                             }
-                        } else if (MENU_STATE.current_mode == MENU_MODE_CAPTURE) {
-                            if (buttons & 0x01 || buttons & 0x02) {
-                                MENU_STATE.settings->video_sync_mode = !MENU_STATE.settings->video_sync_mode;
-                                set_video_sync_mode(MENU_STATE.settings->video_sync_mode);
-                            }
-                        }
-                        break;
-                        
-                    case 1:
-                        if (MENU_STATE.current_mode == MENU_MODE_OUTPUT) {
+                        } break;
+                        case OUTPUT_ITEM_SCAN:
                             if (buttons & 0x01 || buttons & 0x02) { MENU_STATE.settings->scanlines_mode = !MENU_STATE.settings->scanlines_mode; set_scanlines_mode(); }
-                        } else if (MENU_STATE.current_mode == MENU_MODE_CAPTURE) {
+                        break;
+                        case OUTPUT_ITEM_BUFFER:
                         if (buttons & 0x01 || buttons & 0x02) {
-                                MENU_STATE.settings->cap_sync_mode = (MENU_STATE.settings->cap_sync_mode == SELF) ? EXT : SELF;
-                                start_capture(MENU_STATE.settings);
-                            }
+                            MENU_STATE.settings->x3_buffering_mode = !MENU_STATE.settings->x3_buffering_mode;
+                                // Применяем на лету через отложенную последовательность на core1
+                                g_osd_ctx.pending_buffering_apply = true;
                         }
                         break;
-                        
-                    case 2:
-                        if (MENU_STATE.current_mode == MENU_MODE_OUTPUT) {
-                            if (buttons & 0x01 || buttons & 0x02) { MENU_STATE.settings->x3_buffering_mode = !MENU_STATE.settings->x3_buffering_mode; set_v_buf_buffering_mode(MENU_STATE.settings->x3_buffering_mode); }
-                        } else if (MENU_STATE.current_mode == MENU_MODE_CAPTURE) {
+                        case OUTPUT_ITEM_MODE: {
+                        if (buttons & 0x01 || buttons & 0x02) {
+                                MENU_STATE.settings->manual_output_mode = !MENU_STATE.settings->manual_output_mode;
+                                // На авто-режим переключимся только после сохранения (c перезапуском платы)
+                                g_osd_ctx.pending_video_restart = true;
+                            }
+                        } break;
+                        case OUTPUT_ITEM_BACK:
+                        default:
+                                break;
+                    }
+                } else if (MENU_STATE.current_mode == MENU_MODE_CAPTURE) {
+                    switch ((capture_menu_item_t)MENU_STATE.current_item) {
+                        case CAPTURE_ITEM_SYNC:
+                            if (buttons & 0x01 || buttons & 0x02) { MENU_STATE.settings->video_sync_mode = !MENU_STATE.settings->video_sync_mode; set_video_sync_mode(MENU_STATE.settings->video_sync_mode); }
+                            break;
+                        case CAPTURE_ITEM_PIXCLK:
+                            if (buttons & 0x01 || buttons & 0x02) {
+                                MENU_STATE.settings->cap_sync_mode = (MENU_STATE.settings->cap_sync_mode == SELF) ? EXT : SELF;
+                                // Откладываем перезапуск захвата, чтобы выполнить его на core1
+                                g_osd_ctx.pending_capture_restart = true;
+                }
+                        break;
+                        case CAPTURE_ITEM_DIV_OR_FREQ:
                             if (MENU_STATE.settings->cap_sync_mode == EXT) {
                                 if (buttons & 0x01) { MENU_STATE.settings->ext_clk_divider = (MENU_STATE.settings->ext_clk_divider < EXT_CLK_DIVIDER_MAX) ? MENU_STATE.settings->ext_clk_divider + 1 : EXT_CLK_DIVIDER_MIN; }
                                 else if (buttons & 0x02) { MENU_STATE.settings->ext_clk_divider = (MENU_STATE.settings->ext_clk_divider > EXT_CLK_DIVIDER_MIN) ? MENU_STATE.settings->ext_clk_divider - 1 : EXT_CLK_DIVIDER_MAX; }
-                                g_osd_ctx.pending_ext_clk_update = true; if (MENU_STATE.settings->ext_clk_divider == 1) { sleep_ms(5); }
-                            } else { // SELF
+                                // Применяем немедленно (внутри set_ext_clk_divider)
+                                set_ext_clk_divider(MENU_STATE.settings->ext_clk_divider);
+                            } else {
                                 if (buttons & 0x01) { MENU_STATE.settings->frequency = (MENU_STATE.settings->frequency < FREQUENCY_MAX) ? MENU_STATE.settings->frequency + 1000 : FREQUENCY_MIN; }
                                 else if (buttons & 0x02) { MENU_STATE.settings->frequency = (MENU_STATE.settings->frequency > FREQUENCY_MIN) ? MENU_STATE.settings->frequency - 1000 : FREQUENCY_MAX; }
                                 uint16_t di; uint8_t df; calculate_clkdiv(MENU_STATE.settings->frequency, &di, &df); pio_sm_set_clkdiv_int_frac(PIO_CAP, SM_CAP, di, df); MENU_STATE.show_time = to_ms_since_boot(get_absolute_time());
                             }
-                        }
-                        break;
-                        
-                    case 3:
-                        if (MENU_STATE.current_mode == MENU_MODE_OUTPUT) {
-                        if (buttons & 0x01 || buttons & 0x02) {
-                                MENU_STATE.settings->manual_output_mode = !MENU_STATE.settings->manual_output_mode;
-                                bool need_restart = false;
-                                if (!MENU_STATE.settings->manual_output_mode) {
-                                    if (g_osd_ctx.vga_connected_cached) { if (MENU_STATE.settings->video_out_mode == DVI) { MENU_STATE.settings->video_out_mode = VGA640x480; need_restart = true; } }
-                                    else { if (MENU_STATE.settings->video_out_mode != DVI) { MENU_STATE.settings->video_out_mode = DVI; need_restart = true; } }
-                                }
-                                if (need_restart) { if (MENU_STATE.settings->video_out_mode == DVI) start_dvi(*(vga_modes[MENU_STATE.settings->video_out_mode])); else start_vga(*(vga_modes[MENU_STATE.settings->video_out_mode])); set_scanlines_mode(); uint32_t t = to_ms_since_boot(get_absolute_time()); MENU_STATE.show_time = t + 3000; MENU_STATE.last_button_time = t; }
-                            }
-                        } else if (MENU_STATE.current_mode == MENU_MODE_CAPTURE) {
-                            // Пункт 3: Задержка
+                            break;
+                        case CAPTURE_ITEM_DELAY:
                             if (buttons & 0x01) { MENU_STATE.settings->delay = (MENU_STATE.settings->delay < DELAY_MAX) ? MENU_STATE.settings->delay + 1 : DELAY_MIN; }
                             else if (buttons & 0x02) { MENU_STATE.settings->delay = (MENU_STATE.settings->delay > DELAY_MIN) ? MENU_STATE.settings->delay - 1 : DELAY_MAX; }
-                            set_capture_delay(MENU_STATE.settings->delay);
-                        }
+                        set_capture_delay(MENU_STATE.settings->delay);
                         break;
-                        
-                    case 4:
-                        if (MENU_STATE.current_mode == MENU_MODE_CAPTURE) {
+                        case CAPTURE_ITEM_SHX:
                             if (buttons & 0x01) { MENU_STATE.settings->shX = (MENU_STATE.settings->shX < shX_MAX) ? MENU_STATE.settings->shX + 1 : shX_MIN; }
                             else if (buttons & 0x02) { MENU_STATE.settings->shX = (MENU_STATE.settings->shX > shX_MIN) ? MENU_STATE.settings->shX - 1 : shX_MAX; }
-                            set_capture_shX(MENU_STATE.settings->shX);
-                }
+                        set_capture_shX(MENU_STATE.settings->shX);
                         break;
-                        
-                    case 5:
-                        if (MENU_STATE.current_mode == MENU_MODE_CAPTURE) {
+                        case CAPTURE_ITEM_SHY:
                             if (buttons & 0x01) { MENU_STATE.settings->shY = (MENU_STATE.settings->shY < shY_MAX) ? MENU_STATE.settings->shY + 1 : shY_MIN; }
                             else if (buttons & 0x02) { MENU_STATE.settings->shY = (MENU_STATE.settings->shY > shY_MIN) ? MENU_STATE.settings->shY - 1 : shY_MAX; }
-                            set_capture_shY(MENU_STATE.settings->shY);
-                        }
+                        set_capture_shY(MENU_STATE.settings->shY);
                         break;
-                        
-                    case 6:
+                        case CAPTURE_ITEM_INVERSION:
+                        case CAPTURE_ITEM_BACK:
+                        default:
                         break;
-                        
-                    case 7:
-                        break;
-                        
-                    case 8:
-                        break;
-                    default:
-                        break;
+                    }
                 }
                 prepare_menu_text();
                 osd_menu_refresh_render_buf();
@@ -648,27 +650,23 @@ void osd_menu_process(uint8_t buttons) {
         } else {
             if (buttons & ENTER_BUTTON) {
                 if (MENU_STATE.current_mode == MENU_MODE_MAIN) {
-                    if (MENU_STATE.current_item == 0) { MENU_STATE.current_mode = MENU_MODE_CAPTURE; MENU_STATE.current_item = 0; MENU_STATE.editing = false; prepare_menu_text(); osd_menu_refresh_render_buf(); return; }
-                    else if (MENU_STATE.current_item == 1) { MENU_STATE.current_mode = MENU_MODE_OUTPUT; MENU_STATE.current_item = 0; MENU_STATE.editing = false; prepare_menu_text(); osd_menu_refresh_render_buf(); return; }
-                    else if (MENU_STATE.current_item == 2) { osd_menu_hide(); prepare_menu_text(); osd_menu_refresh_render_buf(); return; }
-                    else if (MENU_STATE.current_item == 3) {
+                    if (MENU_STATE.current_item == MAIN_ITEM_CAPTURE) { MENU_STATE.current_mode = MENU_MODE_CAPTURE; MENU_STATE.current_item = 0; MENU_STATE.editing = false; prepare_menu_text(); osd_menu_refresh_render_buf(); return; }
+                    else if (MENU_STATE.current_item == MAIN_ITEM_OUTPUT) { MENU_STATE.current_mode = MENU_MODE_OUTPUT; MENU_STATE.current_item = 0; MENU_STATE.editing = false; prepare_menu_text(); osd_menu_refresh_render_buf(); return; }
+                    else if (MENU_STATE.current_item == MAIN_ITEM_EXIT) { osd_menu_hide(); prepare_menu_text(); osd_menu_refresh_render_buf(); return; }
+                    else if (MENU_STATE.current_item == MAIN_ITEM_SAVE) {
                         save_settings(MENU_STATE.settings);
                         if (g_osd_ctx.pending_video_restart) {
-                            if (MENU_STATE.settings->video_out_mode == DVI) start_dvi(*(vga_modes[MENU_STATE.settings->video_out_mode]));
-                            else start_vga(*(vga_modes[MENU_STATE.settings->video_out_mode]));
-                            set_scanlines_mode();
                             g_osd_ctx.pending_video_restart = false;
-                            uint32_t t = to_ms_since_boot(get_absolute_time());
-                            MENU_STATE.show_time = t + 3000; MENU_STATE.last_button_time = t;
+                            // Перезапускаем плату: при старте в авто-режиме выполнится однократный детект кабеля
                             request_restart();
                         }
                         osd_menu_hide(); prepare_menu_text(); osd_menu_refresh_render_buf(); return; }
                 } else if (MENU_STATE.current_mode == MENU_MODE_CAPTURE) {
-                    if (MENU_STATE.current_item == 6) { MENU_STATE.current_mode = MENU_MODE_INVERSION; MENU_STATE.submenu_selection = 0; MENU_STATE.editing = false; prepare_menu_text(); osd_menu_refresh_render_buf(); return; }
-                    else if (MENU_STATE.current_item == 7) { MENU_STATE.current_mode = MENU_MODE_MAIN; MENU_STATE.current_item = 0; MENU_STATE.editing = false; prepare_menu_text(); osd_menu_refresh_render_buf(); return; }
+                    if (MENU_STATE.current_item == CAPTURE_ITEM_INVERSION) { MENU_STATE.current_mode = MENU_MODE_INVERSION; MENU_STATE.submenu_selection = 0; MENU_STATE.editing = false; prepare_menu_text(); osd_menu_refresh_render_buf(); return; }
+                    else if (MENU_STATE.current_item == CAPTURE_ITEM_BACK) { MENU_STATE.current_mode = MENU_MODE_MAIN; MENU_STATE.current_item = 0; MENU_STATE.editing = false; prepare_menu_text(); osd_menu_refresh_render_buf(); return; }
                     else { MENU_STATE.editing = true; }
                 } else if (MENU_STATE.current_mode == MENU_MODE_OUTPUT) {
-                    if (MENU_STATE.current_item == 4) { MENU_STATE.current_mode = MENU_MODE_MAIN; MENU_STATE.current_item = 0; MENU_STATE.editing = false; prepare_menu_text(); osd_menu_refresh_render_buf(); return; }
+                    if (MENU_STATE.current_item == OUTPUT_ITEM_BACK) { MENU_STATE.current_mode = MENU_MODE_MAIN; MENU_STATE.current_item = 0; MENU_STATE.editing = false; prepare_menu_text(); osd_menu_refresh_render_buf(); return; }
                     else { MENU_STATE.editing = true; }
                 }
             } else {

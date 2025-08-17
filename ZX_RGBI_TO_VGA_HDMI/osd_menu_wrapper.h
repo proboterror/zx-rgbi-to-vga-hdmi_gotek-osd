@@ -31,6 +31,33 @@ typedef enum {
     MENU_MODE_INVERSION
 } menu_mode_t;
 
+// Индексы пунктов меню
+typedef enum {
+    MAIN_ITEM_CAPTURE = 0,
+    MAIN_ITEM_OUTPUT  = 1,
+    MAIN_ITEM_EXIT    = 2,
+    MAIN_ITEM_SAVE    = 3,
+} main_menu_item_t;
+
+typedef enum {
+    CAPTURE_ITEM_SYNC        = 0,
+    CAPTURE_ITEM_PIXCLK      = 1,
+    CAPTURE_ITEM_DIV_OR_FREQ = 2, // Делитель (EXT) или Частота (SELF)
+    CAPTURE_ITEM_DELAY       = 3,
+    CAPTURE_ITEM_SHX         = 4,
+    CAPTURE_ITEM_SHY         = 5,
+    CAPTURE_ITEM_INVERSION   = 6,
+    CAPTURE_ITEM_BACK        = 7,
+} capture_menu_item_t;
+
+typedef enum {
+    OUTPUT_ITEM_VIDEO    = 0,
+    OUTPUT_ITEM_SCAN     = 1,
+    OUTPUT_ITEM_BUFFER   = 2,
+    OUTPUT_ITEM_MODE     = 3, // авто/ручной
+    OUTPUT_ITEM_BACK     = 4,
+} output_menu_item_t;
+
 typedef struct {
     bool active;
     menu_mode_t current_mode;

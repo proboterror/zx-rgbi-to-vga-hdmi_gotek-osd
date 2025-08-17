@@ -89,13 +89,13 @@ typedef struct video_mode_t
   uint8_t div;
 } video_mode_t;
 
-extern video_mode_t vga_640x480;
-extern video_mode_t vga_800x600;
-extern video_mode_t vga_1024x768;
-extern video_mode_t vga_1280x1024_d3;
-extern video_mode_t vga_1280x1024_d4;
+extern const video_mode_t vga_640x480;
+extern const video_mode_t vga_800x600;
+extern const video_mode_t vga_1024x768;
+extern const video_mode_t vga_1280x1024_d3;
+extern const video_mode_t vga_1280x1024_d4;
 
-extern video_mode_t *vga_modes[];
+extern const video_mode_t *vga_modes[];
 
 extern uint8_t *g_v_buf;
 //extern uint32_t frame_count;

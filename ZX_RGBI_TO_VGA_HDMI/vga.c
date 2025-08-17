@@ -195,7 +195,6 @@ static uint16_t __not_in_flash_func(render_i2c_osd_line)(uint16_t y, const struc
                     pixels += 2;
                 }
 
-
                 return pixels;
             }
         }
@@ -204,74 +203,6 @@ static uint16_t __not_in_flash_func(render_i2c_osd_line)(uint16_t y, const struc
     return pixels;
 }
 
-static uint16_t __not_in_flash_func(render_gotek_osd_bottom_line)(uint16_t y, uint16_t *line_buf, uint8_t *scr_buf)
-{
-    uint16_t pixels = 0;
-    
-    // Проверяем, активен ли OSD Gotek и включен ли 7-й бит
-    if (!is_gotek_osd_active()) {
-        return pixels;
-    }
-    
-    // Получаем строку для отображения
-    const char* osd_line = get_gotek_osd_line(0);
-    if (!osd_line) {
-        return pixels;
-    }
-    
-    // Проверяем, что строка не пустая
-    bool line_empty = true;
-    for (unsigned int x = 0; x < 40; x++) {
-        line_empty &= (osd_line[x] <= 0x20);
-    }
-    if (line_empty) {
-        return pixels;
-    }
-    
-    // Определяем позицию для отображения
-    const uint16_t v_visible_scaled = video_mode.v_visible_area / video_mode.div;
-    const uint16_t v_margin_scaled = (uint16_t)(v_margin / video_mode.div);
-    const uint16_t osd_start_y = v_margin_scaled + v_visible_scaled - FONT_HEIGHT;
-    
-    if (y < osd_start_y || y >= (osd_start_y + FONT_HEIGHT)) {
-        return pixels;
-    }
-    
-    // Получаем текущий буфер для определения цветов
-    uint8_t *current_buf = get_v_buf_out();
-    if (!current_buf) return pixels;
-    
-    uint8_t border_color = current_buf[(4 * V_BUF_W + 4) / 2] & 0x0F;
-    uint8_t text_color;
-    if (border_color & 0x08) {
-        text_color = 0;
-    } else {
-        text_color = ((border_color & 0x07) > 3) ? 0 : 15;
-    }
-    
-    const uint16_t font_palette[] = {
-        palette[border_color<<4 | border_color],
-        palette[text_color<<4 | border_color],
-        palette[border_color<<4 | text_color],
-        palette[text_color<<4 | text_color]
-    };
-    
-    // Рендерим строку OSD
-    for (unsigned int x = 0; x < 40; x++) {
-        uint8_t c = osd_line[x];
-        if ((c < 0x20) || (c > 0xf1)) c = 0x20;
-        c -= 0x20;
-        
-        uint8_t glyph_line = font[(c * FONT_HEIGHT) + (y - osd_start_y)];
-        
-        for (int8_t bits = 3; bits >= 0; bits--) {
-            uint8_t index = ((glyph_line >> (bits << 1)) & 0b00000011);
-            *line_buf++ = font_palette[index];
-        }
-        
-        pixels += 8;
-    }
-    
     return pixels;
 }
 
@@ -314,10 +245,17 @@ void __not_in_flash_func(dma_handler_vga)()
 
   // Если нет видеобуфера, но активно меню — всё равно рендерим OSD поверх «чёрного» фона
   bool have_video = (screen_buf != NULL);
-  if (!have_video && !osd_menu_is_active())
+  // have_video определяется только наличием буфера; отсутствие сигнала управляется снаружи
+  if (!have_video)
   {
-    dma_channel_set_read_addr(dma_ch1, &line_patterns[2], false);
-    return;
+    // Заполняем фон чёрным и рисуем приветственный экран в буфер
+    dma_channel_set_read_addr(dma_ch1, &line_patterns[0], false);
+    // Нарисуем приветственный экран один раз в начале кадра
+    if (y == 0) {
+      draw_welcome_screen(video_mode);
+    }
+    // Продолжим, чтобы поверх него мог отрисоваться OSD (и меню)
+    // не делаем return; ниже отрисуем OSD поверх чёрного
   }
 
   // top and bottom black bars when the vertical size of the image is smaller than the vertical resolution of the screen
@@ -452,7 +390,7 @@ void __not_in_flash_func(dma_handler_vga)()
       *line_buf++ = palette[*scr_buf++];
     }
   } else {
-    // Заполняем оставшуюся часть строки чёрным
+    // Заполняем оставшуюся часть строки чёрным (фон под приветственным экраном)
     for (int i = h_visible_area - drawn_pairs; i--;) {
       *line_buf++ = palette[0];
     }

@@ -91,7 +91,6 @@ void *get_v_buf_last_ready()
 
 void set_v_buf_buffering_mode(bool buffering_mode)
 {
-  // Переключение режима буферизации требует сброса внутренних индексов/флагов
   x3_buffering_mode = buffering_mode;
   ensure_v_bufs_init();
   first_frame = true;

@@ -371,8 +371,6 @@ void __not_in_flash_func(i2c_slave_handler)(i2c_inst_t *i2c, i2c_slave_event_t e
 
 void osd_process()
 {
-    // Всегда обрабатываем данные от Gotek, независимо от состояния меню
-    // Логика отключения по 7-му биту остается в основном цикле
 #if FF_OSD_SUPPORT
     ff_osd_process();
 #else

@@ -6,7 +6,8 @@
 #include "ws2812.pio.h" // Автоматически генерируется из .pio файла
 #include "pico/usb_reset_interface.h"
 #include "hardware/structs/usb.h"
-#include <stdarg.h>
+#include <stdarg.h> 
+
 
 // Внешние C-библиотеки
 extern "C" {
@@ -27,12 +28,16 @@ extern "C" {
 
 #define LED_PIN 16
 #define LED_COUNT 1
-#define RESET_PIN 28
+#define MENU_PIN 28
+#ifndef MENU_PIN_UP
+#define MENU_PIN_UP 26
+#endif
+#ifndef MENU_PIN_DOWN
+#define MENU_PIN_DOWN 27
+#endif
 
 #define BUTTON_DEBOUNCE_MS 50    // Время антидребезга
 #define BUTTON_LONG_PRESS_MS 3000 // Время длинного нажатия (3 секунды)
-
-// Цвета определены в g_config.h
 
 // Определения для удобства
 #define printf Serial.printf
@@ -90,45 +95,68 @@ extern "C" void request_restart(void) {
 }
 
 extern "C" bool is_vga_cable_connected(void) {
-    // 1. Выбираем один из выходных пинов VGA 
+    // Выбираем один из выходных пинов VGA 
     const uint vga_pin = VGA_PIN_D0;
-    
+
     // Проверяем валидность пина
     if (vga_pin >= 30) { // RP2040 имеет 30 GPIO пинов
         printf("Ошибка: недопустимый VGA пин %d\n", vga_pin);
         return false;
     }
-    
-    // 2. Сохраняем текущее состояние пина
+
+    // Готовим пин к измерению
+    gpio_init(vga_pin);
     gpio_set_dir(vga_pin, GPIO_IN);
-    bool orig_pull = gpio_is_pulled_up(vga_pin);
-    gpio_set_pulls(vga_pin, false, true); // Включаем PULLDOWN
-    
-    // 3. Подаем тестовый импульс
-    gpio_set_dir(vga_pin, GPIO_OUT);
-    gpio_put(vga_pin, 1);
-    busy_wait_us(1); // Короткий импульс 1 мкс
-    
-    // 4. Проверяем скорость разряда
-    gpio_set_dir(vga_pin, GPIO_IN);
-    uint32_t start = time_us_32();
-    uint32_t timeout_counter = 0;
-    const uint32_t max_timeout = 10; // Таймаут 10 мкс
-    
-    while(gpio_get(vga_pin) && timeout_counter < max_timeout) {
-        timeout_counter++;
-        busy_wait_us(1);
+    gpio_disable_pulls(vga_pin);
+
+    // Делаем несколько измерений и берём медиану для устойчивости
+    const int samples_count = 5;
+    uint32_t samples[samples_count];
+
+    for (int i = 0; i < samples_count; i++) {
+        // Зарядить линию
+        gpio_set_dir(vga_pin, GPIO_OUT);
+        gpio_put(vga_pin, 1);
+        busy_wait_us(50); // более длительная зарядка для холодного старта
+
+        // Отпустить линию и включить слабую подтяжку вниз для контроля разряда
+        gpio_set_dir(vga_pin, GPIO_IN);
+        gpio_set_pulls(vga_pin, false, true); // pulldown
+
+        uint32_t timeout_counter = 0;
+        const uint32_t max_timeout = 100; // до 100 мкс
+        while (gpio_get(vga_pin) && timeout_counter < max_timeout) {
+            timeout_counter++;
+            busy_wait_us(1);
+        }
+        samples[i] = timeout_counter;
+
+        // Подготовка к следующему измерению
+        gpio_disable_pulls(vga_pin);
+        busy_wait_us(100);
     }
-    uint32_t discharge_time = timeout_counter;
-    
-    printf("Discharge time: %d μs\n", discharge_time);
-    
-    // 5. Восстанавливаем состояние
-    gpio_set_pulls(vga_pin, orig_pull, !orig_pull);
-    
-    // 6. Анализ результатов
-    // С 75 Ом нагрузкой разряд будет быстрее
-    return (discharge_time < 5); // Эмпирическое значение, требует калибровки
+
+    // Сортировка вставками (мало выборок) для вычисления медианы
+    for (int i = 1; i < samples_count; i++) {
+        uint32_t key = samples[i];
+        int j = i - 1;
+        while (j >= 0 && samples[j] > key) {
+            samples[j + 1] = samples[j];
+            j--;
+        }
+        samples[j + 1] = key;
+    }
+
+    uint32_t discharge_time = samples[samples_count / 2];
+
+    // Лог и возврат пина в безопасное состояние
+    printf("Discharge time: %d us\n", discharge_time);
+    Serial.flush();
+    gpio_set_dir(vga_pin, GPIO_IN);
+    gpio_disable_pulls(vga_pin);
+
+    // С 75 Ом нагрузкой разряд быстрее => меньше порога
+    return (discharge_time < 6); // Порог эмпирический, при необходимости подстройка
 }
 
 // Минимальный драйвер WS2812 (1 светодиод)
@@ -160,82 +188,63 @@ extern "C" void set_led(bool state, uint32_t color /*= LED_GREEN*/) {
     neopixel_set_color(state ? color : 0);
 }
 
-void check_button() {
-    static uint32_t press_time = 0;
-    static bool pressed = false;
+// Унифицированный опрос кнопок меню: MENU , UP, DOWN. Возвращает битовую маску
+uint8_t read_menu_buttons() {
     static uint32_t last_check = 0;
-    
-    // Ограничиваем частоту проверки для экономии ресурсов
+    static bool up_pressed = false, down_pressed = false, enter_pressed = false;
+    static uint32_t up_press_time = 0, down_press_time = 0, enter_press_time = 0;
+    static uint32_t last_up_release = 0, last_down_release = 0, last_enter_release = 0;
+
     uint32_t current_time = millis();
-    if (current_time - last_check < 10) return;
+    if (current_time - last_check < 10) return 0; // 100 Гц
     last_check = current_time;
-    
-    bool btn_state = digitalRead(RESET_PIN);
 
-    if (!pressed && !btn_state) {
-        pressed = true;
-        press_time = current_time;
-        return;
-    }
+    uint8_t buttons = 0;
 
-    if (pressed && btn_state) {
-        pressed = false;
-        uint32_t duration = current_time - press_time;
-        
-        // Проверяем минимальное время нажатия для антидребезга
-        if (duration > BUTTON_DEBOUNCE_MS) {
-            // Для кнопки меню используем только короткие нажатия
-            if (duration < BUTTON_LONG_PRESS_MS) {
-                osd_menu_process(ENTER_BUTTON);
+    // Считывание состояний
+    bool up_state = digitalRead(MENU_PIN_UP);
+    bool down_state = digitalRead(MENU_PIN_DOWN);
+    bool enter_state = digitalRead(MENU_PIN);
+
+    // MENU
+    // - когда меню не активно — отдаём "уровень"
+    // - когда меню активно — только короткий импульс по отпусканию (edge)
+    const bool menu_active = osd_menu_is_active();
+    if (!menu_active) {
+        if (!enter_state) { // нажат
+            buttons |= ENTER_BUTTON; // уровень
+        }
+        if (!enter_pressed && !enter_state) { enter_pressed = true; enter_press_time = current_time; }
+        else if (enter_pressed && enter_state) { enter_pressed = false; last_enter_release = current_time; }
+    } else {
+        // В активном меню — только edge (импульс по отпусканию)
+        if (!enter_pressed && !enter_state) { enter_pressed = true; enter_press_time = current_time; }
+        else if (enter_pressed && enter_state) {
+            enter_pressed = false;
+            uint32_t duration = current_time - enter_press_time;
+            if (duration > BUTTON_DEBOUNCE_MS && (current_time - last_enter_release > 100)) {
+                buttons |= ENTER_BUTTON; // импульс
+                last_enter_release = current_time;
             }
         }
     }
-}
 
-// для кнопок навигации
-uint8_t check_navigation_buttons() {
-    static uint32_t up_press_time = 0, down_press_time = 0;
-    static bool up_pressed = false, down_pressed = false;
-    static uint32_t last_up_release = 0, last_down_release = 0;
-    static uint32_t last_check = 0;
-    
-    // Ограничиваем частоту проверки для экономии ресурсов
-    uint32_t current_time = millis();
-    if (current_time - last_check < 10) return 0;
-    last_check = current_time;
-    
-    bool up_state = digitalRead(26);
-    bool down_state = digitalRead(27);
-    uint8_t buttons = 0;
-    
-    // UP button edge detection
-    if (!up_pressed && !up_state) {
-        up_pressed = true;
-        up_press_time = current_time;
-    } else if (up_pressed && up_state) {
+    // UP — строго edge по отпусканию
+    if (!up_pressed && !up_state) { up_pressed = true; up_press_time = current_time; }
+    else if (up_pressed && up_state) {
         up_pressed = false;
         uint32_t duration = current_time - up_press_time;
-        // Проверяем антидребезг и короткое нажатие
-        if (duration > 20 && duration < 1000 && (current_time - last_up_release > 100)) {
-            buttons |= 0x01; // UP
-            last_up_release = current_time;
-        }
+        if (duration > 20 && (current_time - last_up_release > 100)) { buttons |= 0x01; last_up_release = current_time; }
     }
-    
-    // DOWN button edge detection
-    if (!down_pressed && !down_state) {
-        down_pressed = true;
-        down_press_time = current_time;
-    } else if (down_pressed && down_state) {
+
+    // DOWN — строго edge по отпусканию
+    if (!down_pressed && !down_state) { down_pressed = true; down_press_time = current_time; }
+    else if (down_pressed && down_state) {
         down_pressed = false;
         uint32_t duration = current_time - down_press_time;
-        // Проверяем антидребезг и короткое нажатие
-        if (duration > 20 && duration < 1000 && (current_time - last_down_release > 100)) {
-            buttons |= 0x02; // DOWN
-            last_down_release = current_time;
-        }
+        if (duration > 20 && (current_time - last_down_release > 100)) { buttons |= 0x02; last_down_release = current_time; }
     }
-    
+
     return buttons;
 }
 
@@ -286,7 +295,7 @@ void set_scanlines_mode() {
 void setup() {
 
     setup_i2c_slave(); 
-    pinMode(RESET_PIN, INPUT_PULLUP);
+    pinMode(MENU_PIN, INPUT_PULLUP);
     vreg_set_voltage(VREG_VOLTAGE_1_25);
     sleep_ms(100);
 
@@ -294,6 +303,12 @@ void setup() {
     sleep_ms(10);
 
     Serial.begin(115200);
+    {
+        uint32_t t0 = millis();
+        while (!Serial && (millis() - t0) < 2000) {
+            delay(10);
+        }
+    }
     
 
     // Добавьте задержку перед загрузкой настроек
@@ -399,33 +414,31 @@ void setup() {
     osd_menu_init(&settings);
     
     // Инициализация пинов кнопок навигации меню
-    gpio_init(26); // UP
-    gpio_set_dir(26, GPIO_IN);
-    gpio_pull_up(26);
+    gpio_init(MENU_PIN_UP);
+    gpio_set_dir(MENU_PIN_UP, GPIO_IN);
+    gpio_pull_up(MENU_PIN_UP);
     
-    gpio_init(27); // DOWN
-    gpio_set_dir(27, GPIO_IN);
-    gpio_pull_up(27);
+    gpio_init(MENU_PIN_DOWN);
+    gpio_set_dir(MENU_PIN_DOWN, GPIO_IN);
+    gpio_pull_up(MENU_PIN_DOWN);
 
-    // Проверка подключения кабеля один раз при старте и сохранение результата для меню
+    // Проверка подключения кабеля при старте: используем только для первичной подсказки меню,
+    // не переключаем режим вывода автоматически здесь
     const bool vga_connected_once = is_vga_cable_connected();
     osd_menu_set_vga_connected(vga_connected_once);
 
-    // Используем кэш при первичной настройке видео в авто-режиме
-    if (vga_connected_once) {
-        if (!settings.manual_output_mode) {
+    // В авто-режиме выполняем ОДНОКРАТНЫЙ детект кабеля и выбираем режим вывода;
+    // в ручном режиме используем сохранённые настройки
+    if (!settings.manual_output_mode) {
+        if (vga_connected_once) {
             settings.video_out_mode = VGA640x480;
             printf("VGA cable detected (auto mode)\n");
         } else {
-            printf("Manual output mode active, using saved settings\n");
-        }
-    } else {
-        if (!settings.manual_output_mode) {
             settings.video_out_mode = DVI;
             printf("HDMI/DVI cable detected (auto mode)\n");
-        } else {
-            printf("Manual output mode active, using saved settings\n");
         }
+    } else {
+        printf("Manual output mode active, using saved settings\n");
     }
 
     // Еще небольшая задержка перед запуском видео
@@ -469,12 +482,6 @@ void loop() {
 //        log_message("System alive - Menu active: %s\n", osd_menu_is_active() ? "YES" : "NO");
     }
     
-    // Проверка кнопки каждые 10мс
-    if (current_time - last_button_check >= 10) {
-        last_button_check = current_time;
-        check_button();
-    }
-
     // Проверка Serial каждые 50мс
     if (current_time - last_serial_check >= 50) {
         last_serial_check = current_time;
@@ -543,7 +550,25 @@ void loop() {
         }
     }
 
-    // Увеличиваем задержку для снижения нагрузки на CPU
+    // Обработка кнопок и логики меню на core0 при большой нагрузке на core1
+    if (current_time - last_button_check >= 10) {
+        last_button_check = current_time;
+        uint8_t buttons = read_menu_buttons();
+
+        // Вне меню: короткое нажатие UP — циклическая смена выхода DVI <-> VGA640x480
+        if (!osd_menu_is_active() && (buttons & 0x01)) {
+            enum video_out_mode_t new_mode = (settings.video_out_mode == DVI) ? VGA640x480 : DVI;
+            settings.video_out_mode = new_mode;
+            settings.manual_output_mode = true; // включаем ручной режим как при изменении через порт
+            check_settings(&settings);
+            save_settings(&settings);
+//            printf("Hot switch: video_out_mode=%d (manual) -> restart\n", settings.video_out_mode);
+            request_restart();
+        }
+
+        osd_menu_process(buttons);
+    }
+
     delay(5);
 }
 
@@ -557,6 +582,8 @@ void setup1() {
 void loop1() {
     static uint32_t last_button_check = 0;
     static uint32_t last_keyboard_update = 0;
+    static uint32_t last_frame_count = 0;
+    static uint32_t last_frame_change_ms = 0;
     uint32_t current_time = millis();
  
     while(true) {
@@ -566,25 +593,25 @@ void loop1() {
             safe_restart();
         }
         
-        // Проверка кнопок навигации каждые 10мс
-        if (current_time - last_button_check >= 10) {
-            last_button_check = current_time;
-            uint8_t buttons = check_navigation_buttons();
-     
-            if (osd_menu_is_active()) {
-               osd_menu_process(buttons);
-            }
-            
-            uint8_t inv0_mask = settings.pin_inversion_mask;
-            if (bitRead(inv0_mask, 7)) {
-                osd_process();
-            } else {
-                // Явно отключаем OSD, если 7-й бит сброшен
-                i2c_display.on = false;
-            }
-            
-            osd_menu_process_pending_updates();
+        // Мониторинг состояния захвата (для welcome screen)
+        if (frame_count != last_frame_count) {
+            last_frame_count = frame_count;
+            last_frame_change_ms = current_time;
         }
+        if ((current_time - last_frame_change_ms) > 200) { // 200 мс без новых кадров
+            // Рисуем приветственный экран в текущий буфер
+            draw_welcome_screen(*(vga_modes[settings.video_out_mode]));
+        }
+
+        // Обновление OSD и отложенных операций на core1
+        uint8_t inv0_mask = settings.pin_inversion_mask;
+        if (bitRead(inv0_mask, 7)) {
+            osd_process();
+        } else {
+            // Явно отключаем OSD, если 7-й бит сброшен
+            i2c_display.on = false;
+        }
+        osd_menu_process_pending_updates();
         
         // Обновление клавиатуры каждые 20мс
         if (current_time - last_keyboard_update >= 20) {

@@ -243,78 +243,7 @@ static uint16_t __not_in_flash_func(render_i2c_osd_line)(uint16_t y, const struc
             }
         }
     }
-    
-    return pixels;
-}
 
-static uint16_t __not_in_flash_func(render_gotek_osd_bottom_line_dvi)(uint16_t y, uint64_t *line_buf)
-{
-    uint16_t pixels = 0;
-    
-    // Проверяем, активен ли OSD Gotek и включен ли 7-й бит
-    if (!is_gotek_osd_active()) {
-        return pixels;
-    }
-    
-    // Получаем строку для отображения
-    const char* osd_line = get_gotek_osd_line(0);
-    if (!osd_line) {
-        return pixels;
-    }
-    
-    // Проверяем, что строка не пустая
-    bool line_empty = true;
-    for (unsigned int x = 0; x < 40; x++) {
-        line_empty &= (osd_line[x] <= 0x20);
-    }
-    if (line_empty) {
-        return pixels;
-    }
-    
-    // Определяем позицию для отображения
-    const uint16_t v_visible_scaled = video_mode.v_visible_area / video_mode.div;
-    const uint16_t osd_start_y = v_visible_scaled - FONT_HEIGHT;
-    
-    if (y < osd_start_y || y >= (osd_start_y + FONT_HEIGHT)) {
-        return pixels;
-    }
-    
-    // Получаем цвета
-    uint8_t border_color = 0;
-    if (screen_buf) {
-        border_color = screen_buf[(4 * V_BUF_W + 4) / 2] & 0x0F;
-    }
-    
-    uint8_t text_color;
-    if (border_color & 0x08) {
-        text_color = 0;
-    } else {
-        text_color = ((border_color & 0x07) > 3) ? 0 : 15;
-    }
-    
-    uint64_t bg_color = palette[border_color * 2];
-    uint64_t fg_color = palette[text_color * 2];
-    
-    // Рендерим строку OSD
-    for (unsigned int x = 0; x < 40; x++) {
-        uint8_t c = osd_line[x];
-        if ((c < 0x20) || (c > 0xf1)) c = 0x20;
-        c -= 0x20;
-        
-        uint8_t glyph_line = font[(c * FONT_HEIGHT) + (y - osd_start_y)];
-        
-        for (int8_t bit = 7; bit >= 0; bit--) {
-            if ((glyph_line >> bit) & 1) {
-                *line_buf++ = fg_color;
-                *line_buf++ = fg_color ^ 0x0003ffffffffffffl;
-            } else {
-                *line_buf++ = bg_color;
-                *line_buf++ = bg_color ^ 0x0003ffffffffffffl;
-            }
-            pixels++;
-        }
-    }
-    
     return pixels;
 }
 
@@ -332,11 +261,11 @@ static void __not_in_flash_func(dma_handler_dvi)()
   if (y == video_mode.whole_frame)
   {
     y = 0;
-    screen_buf = (uint8_t*)get_v_buf_last_ready();
+    screen_buf = (uint8_t*)get_v_buf_out();
   }
 
   if (y & 1)
-    return; // каждая чётная строка обновляет DMA буфер
+    return;
 
   dma_buf_idx++;
 
@@ -506,7 +435,7 @@ void start_dvi(video_mode_t v_mode)
       dma_ch0,
       &c0,
       &PIO_DVI->txf[SM_DVI],     // write address
-      &v_out_dma_buf[0][0],      // read address (двойной буфер)
+      &v_out_dma_buf[0][0],      // read address (одна или две строки)
       video_mode.whole_line * 2, //
       false                      // don't start yet
   );
@@ -535,6 +464,7 @@ void start_dvi(video_mode_t v_mode)
 
   // configure the processor to run dma_handler() when DMA IRQ 0 is asserted
   irq_set_exclusive_handler(DMA_IRQ_0, dma_handler_dvi);
+
   // Умеренный приоритет, чтобы не блокировать захват можно попробовать 0x00 если тормозит
   irq_set_priority(DMA_IRQ_0, 0x40);
   irq_set_enabled(DMA_IRQ_0, true);

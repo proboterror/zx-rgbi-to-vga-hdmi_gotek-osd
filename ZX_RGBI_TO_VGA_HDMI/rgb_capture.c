@@ -6,6 +6,7 @@
 #include "hardware/clocks.h"
 #include "hardware/dma.h"
 #include "hardware/irq.h"
+#include <stdlib.h>
 #include "hardware/sync.h"
 #include "hardware/structs/pll.h"
 #include "hardware/structs/systick.h"
@@ -19,7 +20,7 @@ static int cap_prog_loaded = -1; // -1: none, 0: capture_0, 1: capture_1
 
 uint32_t frame_count = 0;
 
-static uint32_t cap_dma_buf[2][CAP_DMA_BUF_SIZE / 4];
+static uint32_t *cap_dma_buf[2] = { NULL, NULL };
 static uint32_t *cap_dma_buf_addr[2];
 
 void check_settings(settings_t *settings)
@@ -78,6 +79,9 @@ void set_capture_settings(settings_t *settings)
 }
 
 void set_ext_clk_divider(uint8_t divider) {
+    // Запоминаем предыдущее значение до изменения
+    uint8_t prev_divider = capture_settings.ext_clk_divider;
+
     if (divider > EXT_CLK_DIVIDER_MAX)
         capture_settings.ext_clk_divider = EXT_CLK_DIVIDER_MAX;
     else if (divider < EXT_CLK_DIVIDER_MIN)
@@ -87,27 +91,15 @@ void set_ext_clk_divider(uint8_t divider) {
 
     // Обновляем делитель в PIO программе
     if (capture_settings.cap_sync_mode == EXT) {
-        if (capture_settings.ext_clk_divider == 1) {
-            uint32_t interrupts = save_and_disable_interrupts();
-            
-            // Кратковременно останавливаем SM
-            pio_sm_set_enabled(PIO_CAP, SM_CAP, false);
-            
-            // Быстро записываем 0 в инструкции (1 цикл)
-            PIO_CAP->instr_mem[offset + 1] = set_opcode | 0;
-            PIO_CAP->instr_mem[offset + 8] = set_opcode | 0;
-            
-            // Немедленно включаем обратно
-            pio_sm_set_enabled(PIO_CAP, SM_CAP, true);
-            
-            // Восстанавливаем прерывания
-            restore_interrupts(interrupts);
-        } else {
-            // Обычный подход для остальных делителей
-            uint8_t pio_value = (capture_settings.ext_clk_divider - 1) & 0b00011111;
-            PIO_CAP->instr_mem[offset + 1] = set_opcode | pio_value;
-            PIO_CAP->instr_mem[offset + 8] = set_opcode | pio_value;
-        }
+        uint32_t interrupts = save_and_disable_interrupts();
+        pio_sm_set_enabled(PIO_CAP, SM_CAP, false);
+        uint8_t pio_value = (capture_settings.ext_clk_divider == 1) ? 0 : ((capture_settings.ext_clk_divider - 1) & 0b00011111);
+        PIO_CAP->instr_mem[offset + 1] = set_opcode | pio_value;
+        PIO_CAP->instr_mem[offset + 8] = set_opcode | pio_value;
+        pio_sm_set_enabled(PIO_CAP, SM_CAP, true);
+        restore_interrupts(interrupts);
+        // для стабильности интерфейса
+        sleep_us((capture_settings.ext_clk_divider == 1 || prev_divider == 1) ? 120 : 40);
     }
 }
 
@@ -398,8 +390,24 @@ void start_capture(settings_t *settings)
   channel_config_set_write_increment(&c1, false);
   channel_config_set_chain_to(&c1, dma_ch0); // chain to other channel
 
-  cap_dma_buf_addr[0] = &cap_dma_buf[0][0];
-  cap_dma_buf_addr[1] = &cap_dma_buf[1][0];
+  // Выделяем (однократно) два независимых блока для CAP DMA
+  if (cap_dma_buf[0] == NULL) {
+    cap_dma_buf[0] = (uint32_t*)malloc(CAP_DMA_BUF_SIZE);
+    if (!cap_dma_buf[0]) {
+      return;
+    }
+  }
+  if (cap_dma_buf[1] == NULL) {
+    cap_dma_buf[1] = (uint32_t*)malloc(CAP_DMA_BUF_SIZE);
+    if (!cap_dma_buf[1]) {
+      free(cap_dma_buf[0]);
+      cap_dma_buf[0] = NULL;
+      return;
+    }
+  }
+
+  cap_dma_buf_addr[0] = cap_dma_buf[0];
+  cap_dma_buf_addr[1] = cap_dma_buf[1];
 
   dma_channel_configure(
       dma_ch1,

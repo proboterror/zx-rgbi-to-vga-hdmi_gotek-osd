@@ -1,6 +1,6 @@
 #include "g_config.h"
 
-video_mode_t vga_640x480 = {
+const video_mode_t vga_640x480 = {
     .sys_freq = 252000,
     .pixel_freq = 25175000.0,
     .h_visible_area = 640,
@@ -17,7 +17,7 @@ video_mode_t vga_640x480 = {
     .div = 2,
 };
 
-video_mode_t vga_800x600 = {
+const video_mode_t vga_800x600 = {
     .sys_freq = 240000,
     .pixel_freq = 40000000.0,
     .h_visible_area = 800,
@@ -34,7 +34,7 @@ video_mode_t vga_800x600 = {
     .div = 2,
 };
 
-video_mode_t vga_1024x768 = {
+const video_mode_t vga_1024x768 = {
     .sys_freq = 260000,
     .pixel_freq = 65000000.0,
     .h_visible_area = 1023, // 1024
@@ -51,7 +51,7 @@ video_mode_t vga_1024x768 = {
     .div = 3,
 };
 
-video_mode_t vga_1280x1024_d3 = {
+const video_mode_t vga_1280x1024_d3 = {
     .sys_freq = 252000,
     .pixel_freq = 108000000.0,
     .h_visible_area = 1278, // 1280
@@ -68,7 +68,7 @@ video_mode_t vga_1280x1024_d3 = {
     .div = 3,
 };
 
-video_mode_t vga_1280x1024_d4 = {
+const video_mode_t vga_1280x1024_d4 = {
     .sys_freq = 243000, // 270000, // switch to a higher system clock if the image is unstable
     .pixel_freq = 108000000.0,
     .h_visible_area = 1280,
@@ -85,6 +85,6 @@ video_mode_t vga_1280x1024_d4 = {
     .div = 4,
 };
 
-video_mode_t *vga_modes[] = {&vga_640x480, &vga_640x480, &vga_800x600, &vga_1024x768, &vga_1280x1024_d3, &vga_1280x1024_d4};
+const video_mode_t *vga_modes[] = {&vga_640x480, &vga_640x480, &vga_800x600, &vga_1024x768, &vga_1280x1024_d3, &vga_1280x1024_d4};
 
 uint8_t *g_v_buf = NULL;
