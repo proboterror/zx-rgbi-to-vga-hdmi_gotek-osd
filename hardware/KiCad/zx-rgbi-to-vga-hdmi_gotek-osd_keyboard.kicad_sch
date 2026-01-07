@@ -7611,7 +7611,7 @@
 		)
 		(uuid "0a083062-0d90-4af9-916e-228cc38f431c")
 	)
-	(label "GP8"
+	(label "GP3"
 		(at 180.34 60.96 0)
 		(fields_autoplaced yes)
 		(effects
@@ -7644,7 +7644,7 @@
 		)
 		(uuid "0d7d8a12-772f-45be-bf06-28db5bd704aa")
 	)
-	(label "GP17"
+	(label "GP13"
 		(at 95.25 72.39 0)
 		(fields_autoplaced yes)
 		(effects
@@ -7842,7 +7842,7 @@
 		)
 		(uuid "3e9fd816-3430-42c3-a308-1c36f1ed8e9f")
 	)
-	(label "GP6"
+	(label "GP1"
 		(at 180.34 55.88 0)
 		(fields_autoplaced yes)
 		(effects
@@ -7908,7 +7908,7 @@
 		)
 		(uuid "47abe6e9-7984-45e3-8b76-6ed61fe3e572")
 	)
-	(label "GP11"
+	(label "GP6"
 		(at 180.34 68.58 0)
 		(fields_autoplaced yes)
 		(effects
@@ -8315,7 +8315,7 @@
 		)
 		(uuid "8c0f1695-7ab8-49f5-ae9a-22ea6151acb5")
 	)
-	(label "GP5"
+	(label "GP0"
 		(at 180.34 53.34 0)
 		(fields_autoplaced yes)
 		(effects
@@ -8337,7 +8337,7 @@
 		)
 		(uuid "8d418bce-9f8b-44ad-a4c0-53bc2d5ad2a4")
 	)
-	(label "GP7"
+	(label "GP2"
 		(at 180.34 58.42 0)
 		(fields_autoplaced yes)
 		(effects
@@ -8348,7 +8348,7 @@
 		)
 		(uuid "8fb6e765-6d4a-4c45-943d-25df4245b696")
 	)
-	(label "GP9"
+	(label "GP4"
 		(at 180.34 63.5 0)
 		(fields_autoplaced yes)
 		(effects
@@ -8381,7 +8381,7 @@
 		)
 		(uuid "92a12111-dc64-4429-9fe5-1df8364697f2")
 	)
-	(label "GP19"
+	(label "GP15"
 		(at 95.25 77.47 0)
 		(fields_autoplaced yes)
 		(effects
@@ -8414,7 +8414,7 @@
 		)
 		(uuid "9784bcac-679a-4d47-8917-b64aeacb2603")
 	)
-	(label "GP15"
+	(label "GP11"
 		(at 95.25 67.31 0)
 		(fields_autoplaced yes)
 		(effects
@@ -8491,7 +8491,7 @@
 		)
 		(uuid "a947efcf-559d-420c-a121-850252db8cfd")
 	)
-	(label "GP14"
+	(label "GP10"
 		(at 95.25 64.77 0)
 		(fields_autoplaced yes)
 		(effects
@@ -8557,7 +8557,7 @@
 		)
 		(uuid "b9b183ac-07aa-4520-b4ad-b3dadade6f7d")
 	)
-	(label "GP12"
+	(label "GP8"
 		(at 95.25 59.69 0)
 		(fields_autoplaced yes)
 		(effects
@@ -8711,7 +8711,7 @@
 		)
 		(uuid "cf3ed5ba-44d1-45e2-bffb-9566e5172b8b")
 	)
-	(label "GP18"
+	(label "GP14"
 		(at 95.25 74.93 0)
 		(fields_autoplaced yes)
 		(effects
@@ -8810,7 +8810,7 @@
 		)
 		(uuid "dca82f56-4684-4ace-856a-46e0a80b8009")
 	)
-	(label "GP13"
+	(label "GP9"
 		(at 95.25 62.23 0)
 		(fields_autoplaced yes)
 		(effects
@@ -8986,7 +8986,7 @@
 		)
 		(uuid "fb392800-1f6b-4d53-b0f8-f8c0b718fbcb")
 	)
-	(label "GP10"
+	(label "GP5"
 		(at 180.34 66.04 0)
 		(fields_autoplaced yes)
 		(effects
@@ -8997,7 +8997,7 @@
 		)
 		(uuid "fbeccd60-d632-48a8-bb1c-28b0f7209bc8")
 	)
-	(label "GP16"
+	(label "GP12"
 		(at 95.25 69.85 0)
 		(fields_autoplaced yes)
 		(effects
